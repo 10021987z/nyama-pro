@@ -1,0 +1,151 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/storage/secure_storage.dart';
+import '../data/auth_repository.dart';
+
+enum AuthStatus {
+  initial,
+  loading,
+  otpSent,
+  verifying,
+  authenticated,
+  unauthenticated,
+  wrongRole, // OTP valide mais pas cuisinière
+  error,
+}
+
+class AuthState {
+  final AuthStatus status;
+  final CookUser? user;
+  final String? phone;
+  final String? errorMessage;
+
+  const AuthState({
+    this.status = AuthStatus.initial,
+    this.user,
+    this.phone,
+    this.errorMessage,
+  });
+
+  bool get isAuthenticated => status == AuthStatus.authenticated;
+  bool get isLoading =>
+      status == AuthStatus.loading || status == AuthStatus.verifying;
+
+  AuthState copyWith({
+    AuthStatus? status,
+    CookUser? user,
+    String? phone,
+    String? errorMessage,
+  }) =>
+      AuthState(
+        status: status ?? this.status,
+        user: user ?? this.user,
+        phone: phone ?? this.phone,
+        errorMessage: errorMessage,
+      );
+}
+
+class AuthNotifier extends StateNotifier<AuthState> {
+  final AuthRepository _repo;
+
+  AuthNotifier(this._repo) : super(const AuthState()) {
+    checkAuth();
+  }
+
+  Future<void> checkAuth() async {
+    final loggedIn = await _repo.isLoggedIn();
+    if (!mounted) return;
+    if (loggedIn) {
+      final phone = await SecureStorage.getUserPhone();
+      final id = await SecureStorage.getUserId();
+      final cookId = await SecureStorage.getCookId();
+      final user = (phone != null && id != null)
+          ? CookUser(id: id, phone: phone, cookId: cookId)
+          : null;
+      state = AuthState(status: AuthStatus.authenticated, user: user);
+    } else {
+      state = const AuthState(status: AuthStatus.unauthenticated);
+    }
+  }
+
+  Future<void> requestOtp(String phone) async {
+    state = AuthState(status: AuthStatus.loading, phone: phone);
+    try {
+      await _repo.requestOtp(phone);
+      if (!mounted) return;
+      state = AuthState(status: AuthStatus.otpSent, phone: phone);
+    } catch (e) {
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.error,
+        phone: phone,
+        errorMessage: _parseError(e),
+      );
+    }
+  }
+
+  Future<void> verifyOtp(String phone, String code) async {
+    state = AuthState(status: AuthStatus.verifying, phone: phone);
+    try {
+      final result = await _repo.verifyOtp(phone, code);
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.authenticated,
+        user: result.user ?? CookUser(id: '', phone: phone),
+        phone: phone,
+      );
+    } on NotCookException catch (e) {
+      if (!mounted) return;
+      // Assure logout complet (pas de tokens stockés)
+      await _repo.logout();
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.wrongRole,
+        phone: phone,
+        errorMessage: e.toString(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.error,
+        phone: phone,
+        errorMessage: _parseError(e),
+      );
+    }
+  }
+
+  Future<void> resendOtp() async {
+    final phone = state.phone;
+    if (phone == null) return;
+    await requestOtp(phone);
+  }
+
+  void clearError() {
+    state = state.copyWith(
+      status: state.phone != null
+          ? AuthStatus.otpSent
+          : AuthStatus.unauthenticated,
+      errorMessage: null,
+    );
+  }
+
+  Future<void> logout() async {
+    await _repo.logout();
+    if (!mounted) return;
+    state = const AuthState(status: AuthStatus.unauthenticated);
+  }
+
+  String _parseError(Object e) {
+    final msg = e.toString();
+    if (msg.contains(':')) return msg.split(':').skip(1).join(':').trim();
+    return msg;
+  }
+}
+
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return AuthRepository();
+});
+
+final authStateProvider =
+    StateNotifierProvider<AuthNotifier, AuthState>((ref) {
+  return AuthNotifier(ref.read(authRepositoryProvider));
+});
