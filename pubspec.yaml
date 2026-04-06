@@ -50,6 +50,9 @@ dependencies:
   # Appel téléphonique direct
   url_launcher: ^6.2.0
 
+  # SVG support
+  flutter_svg: ^2.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -61,8 +64,23 @@ flutter:
   assets:
     - assets/sounds/
     - assets/images/
+    - assets/
+
+  fonts:
+    - family: Montserrat
+      fonts:
+        - asset: assets/fonts/Montserrat-Variable.ttf
+    - family: NunitoSans
+      fonts:
+        - asset: assets/fonts/NunitoSans-Variable.ttf
+    - family: SpaceMono
+      fonts:
+        - asset: assets/fonts/SpaceMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/SpaceMono-Bold.ttf
+          weight: 700
 
 flutter_native_splash:
-  color: "#1B4332"
+  color: "#F57C20"
   android: true
   ios: true

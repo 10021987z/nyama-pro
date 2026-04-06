@@ -279,9 +279,10 @@ class _MenuItemCard extends StatelessWidget {
                       Text(
                         item.priceXaf.toFcfa(),
                         style: const TextStyle(
+                          fontFamily: 'SpaceMono',
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.success,
+                          color: AppColors.primary,
                         ),
                       ),
                     ],
@@ -335,17 +336,17 @@ class _MenuItemCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.secondary.withValues(alpha: 0.15),
+                      color: AppColors.gold.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: AppColors.secondary.withValues(alpha: 0.4)),
+                          color: AppColors.gold.withValues(alpha: 0.4)),
                     ),
                     child: const Text(
                       '⭐ Plat du jour',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF92610A),
+                        color: AppColors.gold,
                       ),
                     ),
                   ),

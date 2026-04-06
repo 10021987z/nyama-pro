@@ -117,7 +117,7 @@ class OrderCard extends StatelessWidget {
                 label: const Text('Marquer prête',
                     style: TextStyle(fontSize: 18)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.secondary,
+                  backgroundColor: AppColors.gold,
                   minimumSize: const Size(double.infinity, 64),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),

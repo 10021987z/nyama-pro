@@ -14,7 +14,7 @@ class RevenueScreen extends ConsumerWidget {
     final dashAsync = ref.watch(cookDashboardProvider);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
@@ -66,8 +66,9 @@ class RevenueScreen extends ConsumerWidget {
               Text(
                 dash.revenueToday.toFcfa(),
                 style: const TextStyle(
+                  fontFamily: 'SpaceMono',
                   fontSize: 32,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: AppColors.primary,
                 ),
               ),
@@ -168,7 +169,7 @@ class RevenueScreen extends ConsumerWidget {
                       rating: dash.avgRating,
                       itemBuilder: (_, _) => const Icon(
                         Icons.star_rounded,
-                        color: AppColors.secondary,
+                        color: AppColors.gold,
                       ),
                       itemSize: 28,
                       itemCount: 5,
@@ -203,8 +204,9 @@ class RevenueScreen extends ConsumerWidget {
               Text(
                 dash.revenueToday.toFcfa(),
                 style: const TextStyle(
+                  fontFamily: 'SpaceMono',
                   fontSize: 28,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: AppColors.primary,
                 ),
               ),

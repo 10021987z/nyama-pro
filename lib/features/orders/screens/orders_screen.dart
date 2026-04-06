@@ -468,8 +468,8 @@ class _PendingSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _SectionContainer(
       title: '⚠️ EN ATTENTE',
-      bgColor: const Color(0xFFFFF3CD),
-      borderColor: const Color(0xFFFFC107),
+      bgColor: AppColors.warning.withValues(alpha: 0.1),
+      borderColor: AppColors.warning,
       child: orders.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
@@ -584,7 +584,7 @@ class _PendingOrderCardState extends State<_PendingOrderCard> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFFDE7),
+                color: AppColors.warning.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -611,9 +611,10 @@ class _PendingOrderCardState extends State<_PendingOrderCard> {
           Text(
             order.totalXaf.toFcfa(),
             style: const TextStyle(
+              fontFamily: 'SpaceMono',
               fontSize: 22,
-              fontWeight: FontWeight.w900,
-              color: AppColors.success,
+              fontWeight: FontWeight.w700,
+              color: AppColors.gold,
             ),
           ),
 
@@ -633,11 +634,11 @@ class _PendingOrderCardState extends State<_PendingOrderCard> {
                           if (mounted) setState(() => _isAccepting = false);
                         },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: AppColors.ctaGreen,
                 foregroundColor: Colors.white,
                 minimumSize: const Size(double.infinity, 72),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
+                    borderRadius: BorderRadius.circular(12)),
               ),
               child: _isAccepting
                   ? const SizedBox(
@@ -714,8 +715,8 @@ class _PreparingSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _SectionContainer(
       title: '🍳 EN PRÉPARATION',
-      bgColor: const Color(0xFFE3F2FD),
-      borderColor: const Color(0xFF42A5F5),
+      bgColor: AppColors.primary.withValues(alpha: 0.08),
+      borderColor: AppColors.primary,
       child: orders.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -765,7 +766,7 @@ class _PreparingOrderCardState extends State<_PreparingOrderCard> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: const Color(0xFF42A5F5).withValues(alpha: 0.4)),
+            color: AppColors.primary.withValues(alpha: 0.4)),
         boxShadow: const [
           BoxShadow(
               color: AppColors.cardShadow,
@@ -798,9 +799,10 @@ class _PreparingOrderCardState extends State<_PreparingOrderCard> {
           const SizedBox(height: 12),
           Text(order.totalXaf.toFcfa(),
               style: const TextStyle(
+                  fontFamily: 'SpaceMono',
                   fontWeight: FontWeight.w700,
                   fontSize: 18,
-                  color: AppColors.primary)),
+                  color: AppColors.gold)),
           const SizedBox(height: 12),
 
           // PRÊTE — 72dp or
@@ -816,7 +818,7 @@ class _PreparingOrderCardState extends State<_PreparingOrderCard> {
                       if (mounted) setState(() => _isMarking = false);
                     },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.secondary,
+                backgroundColor: AppColors.gold,
                 foregroundColor: AppColors.textPrimary,
                 minimumSize: const Size(double.infinity, 72),
                 shape: RoundedRectangleBorder(
@@ -885,7 +887,7 @@ class _ElapsedTimerState extends State<_ElapsedTimer> {
       decoration: BoxDecoration(
         color: _minutes > 30
             ? AppColors.error.withValues(alpha: 0.1)
-            : const Color(0xFFE3F2FD),
+            : AppColors.primary.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -893,7 +895,7 @@ class _ElapsedTimerState extends State<_ElapsedTimer> {
         style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: _minutes > 30 ? AppColors.error : const Color(0xFF1565C0),
+          color: _minutes > 30 ? AppColors.error : AppColors.primary,
         ),
       ),
     );
@@ -911,7 +913,7 @@ class _ReadySection extends StatelessWidget {
   Widget build(BuildContext context) {
     return _SectionContainer(
       title: '📦 EN ATTENTE LIVREUR',
-      bgColor: const Color(0xFFF5F5F5),
+      bgColor: AppColors.surface,
       borderColor: AppColors.divider,
       child: orders.isEmpty
           ? const Padding(
@@ -960,9 +962,10 @@ class _ReadyOrderCard extends StatelessWidget {
                       fontWeight: FontWeight.w700, fontSize: 16)),
               Text(order.totalXaf.toFcfa(),
                   style: const TextStyle(
-                      fontWeight: FontWeight.w600,
+                      fontFamily: 'SpaceMono',
+                      fontWeight: FontWeight.w700,
                       fontSize: 15,
-                      color: AppColors.primary)),
+                      color: AppColors.gold)),
             ],
           ),
           const SizedBox(height: 4),

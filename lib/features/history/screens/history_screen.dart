@@ -262,9 +262,10 @@ class _HistoryCard extends StatelessWidget {
                 Text(
                   order.totalXaf.toFcfa(),
                   style: const TextStyle(
+                    fontFamily: 'SpaceMono',
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.success,
+                    color: AppColors.gold,
                   ),
                 ),
                 const Spacer(),
@@ -298,7 +299,7 @@ class _StatusBadge extends StatelessWidget {
     final (emoji, label, color) = switch (status) {
       'delivered' => ('✅', 'Livrée', AppColors.success),
       'cancelled' => ('❌', 'Annulée', AppColors.error),
-      _ => ('⏳', 'En cours', const Color(0xFF2563EB)),
+      _ => ('⏳', 'En cours', AppColors.primary),
     };
 
     return Container(

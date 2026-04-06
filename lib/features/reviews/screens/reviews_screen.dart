@@ -76,15 +76,15 @@ class ReviewsScreen extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF3CD),
+                    color: AppColors.warning.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                     border:
-                        Border.all(color: const Color(0xFFFFD700)),
+                        Border.all(color: AppColors.warning),
                   ),
                   child: const Text(
                     '⚠️ Attention, votre note baisse. Vérifiez la qualité et la fraîcheur de vos plats.',
                     style: TextStyle(
-                        fontSize: 14, color: Color(0xFF856404)),
+                        fontSize: 14, color: AppColors.textPrimary),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -175,7 +175,7 @@ class _HeaderCard extends StatelessWidget {
               rating: avg,
               itemBuilder: (_, _) => const Icon(
                 Icons.star_rounded,
-                color: AppColors.secondary,
+                color: AppColors.gold,
               ),
               itemSize: 24,
               itemCount: 5,
@@ -265,7 +265,7 @@ class _ReviewCard extends StatelessWidget {
                 rating: review.cookRating,
                 itemBuilder: (_, _) => const Icon(
                   Icons.star_rounded,
-                  color: AppColors.secondary,
+                  color: AppColors.gold,
                 ),
                 itemSize: 16,
                 itemCount: 5,

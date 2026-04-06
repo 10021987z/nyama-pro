@@ -5,12 +5,11 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData get light {
-    const primarySwatch = AppColors.primary;
-
     return ThemeData(
       useMaterial3: true,
+      fontFamily: 'Montserrat',
       colorScheme: ColorScheme.fromSeed(
-        seedColor: primarySwatch,
+        seedColor: AppColors.primary,
         primary: AppColors.primary,
         secondary: AppColors.secondary,
         error: AppColors.error,
@@ -18,69 +17,86 @@ class AppTheme {
       ),
       scaffoldBackgroundColor: AppColors.background,
 
-      // ── AppBar ─────────────────────────────────────────────────────────
+      // ── AppBar — Nyama Orange ─────────────────────────────────────────
       appBarTheme: const AppBarTheme(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
         titleTextStyle: TextStyle(
+          fontFamily: 'Montserrat',
           color: Colors.white,
           fontSize: 20,
           fontWeight: FontWeight.w700,
         ),
       ),
 
-      // ── Textes — minimum 16sp ──────────────────────────────────────────
+      // ── Textes ────────────────────────────────────────────────────────
       textTheme: const TextTheme(
         displayLarge: TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 32,
             fontWeight: FontWeight.w800,
             color: AppColors.textPrimary),
         displayMedium: TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 28,
             fontWeight: FontWeight.w700,
             color: AppColors.textPrimary),
         titleLarge: TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 22,
             fontWeight: FontWeight.w700,
             color: AppColors.textPrimary),
         titleMedium: TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 18,
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary),
         titleSmall: TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 16,
             fontWeight: FontWeight.w600,
             color: AppColors.textPrimary),
         bodyLarge: TextStyle(
+            fontFamily: 'NunitoSans',
             fontSize: 18,
             fontWeight: FontWeight.w400,
             color: AppColors.textPrimary),
         bodyMedium: TextStyle(
+            fontFamily: 'NunitoSans',
             fontSize: 16,
             fontWeight: FontWeight.w400,
             color: AppColors.textPrimary),
         bodySmall: TextStyle(
+            fontFamily: 'NunitoSans',
             fontSize: 14,
             fontWeight: FontWeight.w400,
             color: AppColors.textSecondary),
         labelLarge: TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 18,
             fontWeight: FontWeight.w600,
             color: Colors.white),
+        // Prix FCFA
+        displaySmall: TextStyle(
+            fontFamily: 'SpaceMono',
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary),
       ),
 
-      // ── ElevatedButton — height 56dp par défaut ────────────────────────
+      // ── ElevatedButton — CTA vert ─────────────────────────────────────
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
+          backgroundColor: AppColors.ctaGreen,
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 56),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
           textStyle: const TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
@@ -88,16 +104,17 @@ class AppTheme {
         ),
       ),
 
-      // ── OutlinedButton ─────────────────────────────────────────────────
+      // ── OutlinedButton — contour orange ────────────────────────────────
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.primary,
           minimumSize: const Size(double.infinity, 56),
           side: const BorderSide(color: AppColors.primary, width: 2),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
           textStyle: const TextStyle(
+            fontFamily: 'Montserrat',
             fontSize: 18,
             fontWeight: FontWeight.w700,
           ),
@@ -109,6 +126,7 @@ class AppTheme {
         style: TextButton.styleFrom(
           foregroundColor: AppColors.primary,
           textStyle: const TextStyle(
+            fontFamily: 'NunitoSans',
             fontSize: 16,
             fontWeight: FontWeight.w600,
           ),
@@ -139,9 +157,9 @@ class AppTheme {
           borderSide: const BorderSide(color: AppColors.error),
         ),
         labelStyle: const TextStyle(
-            fontSize: 16, color: AppColors.textSecondary),
+            fontFamily: 'NunitoSans', fontSize: 16, color: AppColors.textSecondary),
         hintStyle: const TextStyle(
-            fontSize: 16, color: AppColors.textSecondary),
+            fontFamily: 'NunitoSans', fontSize: 16, color: AppColors.textSecondary),
       ),
 
       // ── Card ───────────────────────────────────────────────────────────
@@ -168,8 +186,8 @@ class AppTheme {
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textSecondary,
         selectedLabelStyle:
-            TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: TextStyle(fontSize: 12),
+            TextStyle(fontFamily: 'Montserrat', fontSize: 13, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: TextStyle(fontFamily: 'NunitoSans', fontSize: 12),
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
         elevation: 8,

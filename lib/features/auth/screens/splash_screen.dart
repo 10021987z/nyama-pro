@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../providers/auth_provider.dart';
@@ -35,37 +36,21 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     });
 
     return Scaffold(
-      backgroundColor: AppColors.primary,
+      backgroundColor: AppColors.primary, // Fond #F57C20
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo
-            Container(
+            SvgPicture.asset(
+              'assets/nyama-logo.svg',
               width: 110,
               height: 110,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: const Center(
-                child: Text(
-                  '🍽️',
-                  style: TextStyle(fontSize: 52),
-                ),
-              ),
             ),
             const SizedBox(height: 20),
             const Text(
               'NYAMA Pro',
               style: TextStyle(
+                fontFamily: 'Montserrat',
                 color: Colors.white,
                 fontSize: 32,
                 fontWeight: FontWeight.w800,
@@ -73,16 +58,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Espace cuisinière',
               style: TextStyle(
-                color: Colors.white70,
+                fontFamily: 'NunitoSans',
+                color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 16,
               ),
             ),
             const SizedBox(height: 48),
             const CircularProgressIndicator(
-              color: AppColors.secondary,
+              color: AppColors.gold,
               strokeWidth: 3,
             ),
           ],

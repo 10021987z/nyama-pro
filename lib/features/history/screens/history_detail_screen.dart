@@ -77,7 +77,7 @@ class HistoryDetailScreen extends ConsumerWidget {
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 15,
-                              color: AppColors.primary,
+                              color: AppColors.ctaGreen,
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -136,9 +136,10 @@ class HistoryDetailScreen extends ConsumerWidget {
                     Text(
                       order.totalXaf.toFcfa(),
                       style: const TextStyle(
+                        fontFamily: 'SpaceMono',
                         fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.success,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.gold,
                       ),
                     ),
                   ],
@@ -175,7 +176,7 @@ class HistoryDetailScreen extends ConsumerWidget {
                     rating: order.review!.cookRating,
                     itemBuilder: (_, _) => const Icon(
                       Icons.star_rounded,
-                      color: AppColors.secondary,
+                      color: AppColors.gold,
                     ),
                     itemSize: 28,
                     itemCount: 5,
