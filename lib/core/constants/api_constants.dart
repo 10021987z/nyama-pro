@@ -1,14 +1,7 @@
-import 'dart:io';
-
 class ApiConstants {
   ApiConstants._();
 
-  static String get baseUrl {
-    if (Platform.isAndroid) {
-      return 'http://10.0.2.2:3000/api/v1';
-    }
-    return 'http://localhost:3000/api/v1';
-  }
+  static const String baseUrl = 'https://nyama-api-production.up.railway.app/api/v1';
 
   static const Duration connectTimeout = Duration(seconds: 10);
   static const Duration receiveTimeout = Duration(seconds: 30);
@@ -50,10 +43,7 @@ class ApiConstants {
   static String cookById(String id) => '/cooks/$id';
 
   // ── WebSocket ─────────────────────────────────────────────────────────────
-  static String get wsUrl {
-    if (Platform.isAndroid) return 'http://10.0.2.2:3000';
-    return 'http://localhost:3000';
-  }
+  static const String wsUrl = 'https://nyama-api-production.up.railway.app';
 
   // ── Storage keys ──────────────────────────────────────────────────────────
   static const String accessTokenKey = 'access_token';
