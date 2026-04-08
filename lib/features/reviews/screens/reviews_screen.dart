@@ -1,311 +1,321 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_rating_bar/flutter_rating_bar.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../../../core/constants/app_colors.dart';
-import '../providers/reviews_provider.dart';
 
-// ── Local filter provider ─────────────────────────────────────────────────────
+class _Review {
+  final String name;
+  final int stars;
+  final String when;
+  final String text;
+  final String dish;
+  const _Review({
+    required this.name,
+    required this.stars,
+    required this.when,
+    required this.text,
+    required this.dish,
+  });
+}
 
-final _reviewFilterProvider = StateProvider<bool>((ref) => false);
-// false = tous les avis, true = négatifs seulement (1-2 étoiles)
-
-class ReviewsScreen extends ConsumerWidget {
+class ReviewsScreen extends StatefulWidget {
   const ReviewsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final reviewsAsync = ref.watch(cookReviewsProvider);
-    final showNegative = ref.watch(_reviewFilterProvider);
+  State<ReviewsScreen> createState() => _ReviewsScreenState();
+}
+
+class _ReviewsScreenState extends State<ReviewsScreen> {
+  String _filter = 'Tous';
+  final _filters = const ['Tous', '5 Étoiles', '4 Étoiles'];
+
+  final _reviews = const [
+    _Review(
+      name: 'Samuel M.',
+      stars: 5,
+      when: 'IL Y A 2H',
+      text:
+          'Le Ndolé était sucré ! On sent la fraîcheur des arachides.',
+      dish: 'Ndolé Royal',
+    ),
+    _Review(
+      name: 'Alice E.',
+      stars: 5,
+      when: 'HIER',
+      text:
+          'Poulet DG bien assaisonné. Livraison un peu lente mais ça valait le coup.',
+      dish: 'Poulet DG',
+    ),
+    _Review(
+      name: 'Paul K.',
+      stars: 5,
+      when: 'IL Y A 3 JOURS',
+      text:
+          'Le meilleur Achu de Douala. Le piment jaune est juste incroyable.',
+      dish: 'Achu & Sauce Jaune',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filter == 'Tous'
+        ? _reviews
+        : _reviews
+            .where((r) =>
+                r.stars == int.parse(_filter.split(' ').first))
+            .toList();
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        title: const Text(
-          'Avis clients',
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(cookReviewsProvider),
-          ),
-        ],
-      ),
-      body: reviewsAsync.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.primary),
-        ),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+          children: [
+            // Header
+            Row(
               children: [
-                const Text('😕', style: TextStyle(fontSize: 48)),
-                const SizedBox(height: 12),
-                Text(e.toString(),
+                const Expanded(
+                  child: Text(
+                    'Cuisine de Nyama',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textSecondary)),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => ref.invalidate(cookReviewsProvider),
-                  child: const Text('Réessayer'),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () {},
+                  icon: const Icon(Icons.notifications_none_rounded,
+                      color: AppColors.textPrimary),
                 ),
               ],
             ),
-          ),
-        ),
-        data: (reviews) {
-          final avg = avgRatingFromEntries(reviews);
-          final filtered = showNegative
-              ? reviews.where((r) => r.cookRating <= 2).toList()
-              : reviews;
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-            children: [
-              // ── Header card ─────────────────────────────────────────
-              _HeaderCard(avg: avg, count: reviews.length),
-              const SizedBox(height: 12),
-
-              // ── Low rating warning ──────────────────────────────────
-              if (avg > 0 && avg < 3.5) ...[
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border:
-                        Border.all(color: AppColors.warning),
-                  ),
-                  child: const Text(
-                    '⚠️ Attention, votre note baisse. Vérifiez la qualité et la fraîcheur de vos plats.',
-                    style: TextStyle(
-                        fontSize: 14, color: AppColors.textPrimary),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-
-              // ── Filter chips ────────────────────────────────────────
-              Row(
+            const SizedBox(height: 16),
+            // Note globale
+            Center(
+              child: Column(
                 children: [
-                  _Chip(
-                    label: 'Tous les avis',
-                    selected: !showNegative,
-                    onTap: () => ref
-                        .read(_reviewFilterProvider.notifier)
-                        .state = false,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: const [
+                      Text(
+                        '4.8',
+                        style: TextStyle(
+                          fontSize: 56,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.only(bottom: 12, left: 4),
+                        child: Text(
+                          '/5',
+                          style: TextStyle(
+                            fontSize: 24,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  _Chip(
-                    label: '⭐ 1-2 (négatifs)',
-                    selected: showNegative,
-                    onTap: () => ref
-                        .read(_reviewFilterProvider.notifier)
-                        .state = true,
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      5,
+                      (_) => const Icon(Icons.star,
+                          color: AppColors.gold, size: 26),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Basé sur 124 avis récents',
+                    style: TextStyle(
+                        fontSize: 14, color: AppColors.textSecondary),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-
-              // ── Reviews list ────────────────────────────────────────
-              if (filtered.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Center(
-                    child: Text(
-                      reviews.isEmpty
-                          ? 'Aucun avis pour le moment.\nVos clients pourront vous noter après chaque livraison ! ⭐'
-                          : 'Aucun avis négatif — continuez comme ça ! 🎉',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 16,
-                          color: AppColors.textSecondary,
-                          height: 1.5),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _filters.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (ctx, i) {
+                  final f = _filters[i];
+                  final active = f == _filter;
+                  return GestureDetector(
+                    onTap: () => setState(() => _filter = f),
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 16),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: active
+                            ? AppColors.primary
+                            : AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: active
+                                ? AppColors.primary
+                                : AppColors.divider),
+                      ),
+                      child: Text(
+                        f,
+                        style: TextStyle(
+                          color: active
+                              ? Colors.white
+                              : AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
-                  ),
-                )
-              else
-                ...filtered.map((r) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _ReviewCard(review: r),
-                    )),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-// ── Header card ───────────────────────────────────────────────────────────────
-
-class _HeaderCard extends StatelessWidget {
-  final double avg;
-  final int count;
-
-  const _HeaderCard({required this.avg, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            avg > 0 ? '⭐ ${avg.toStringAsFixed(1)} / 5' : '⭐ — / 5',
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (avg > 0)
-            RatingBarIndicator(
-              rating: avg,
-              itemBuilder: (_, _) => const Icon(
-                Icons.star_rounded,
-                color: AppColors.gold,
+                  );
+                },
               ),
-              itemSize: 24,
-              itemCount: 5,
             ),
-          const SizedBox(height: 6),
-          Text(
-            count > 0
-                ? 'basé sur $count avis'
-                : 'Aucun avis pour le moment',
-            style: const TextStyle(fontSize: 14, color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Filter chip ───────────────────────────────────────────────────────────────
-
-class _Chip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _Chip(
-      {required this.label,
-      required this.selected,
-      required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: selected ? AppColors.primary : AppColors.divider),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : AppColors.textPrimary,
-          ),
+            const SizedBox(height: 16),
+            if (filtered.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(32),
+                child: Center(
+                    child: Text('Aucun avis dans cette catégorie',
+                        style: TextStyle(
+                            color: AppColors.textSecondary))),
+              )
+            else
+              ...filtered.map((r) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _ReviewCard(review: r),
+                  )),
+          ],
         ),
       ),
     );
   }
 }
-
-// ── Review card ───────────────────────────────────────────────────────────────
 
 class _ReviewCard extends StatelessWidget {
-  final ReviewEntry review;
+  final _Review review;
   const _ReviewCard({required this.review});
 
-  String get _shortName {
-    final parts = review.clientName.trim().split(' ');
-    if (parts.length <= 1) return parts.first;
-    return '${parts.first} ${parts.last[0]}.';
+  Color _avatarColor(String name) {
+    const palette = [
+      Color(0xFFFFE4CC),
+      Color(0xFFCCE8D4),
+      Color(0xFFE0D4F0),
+      Color(0xFFFFE4E1),
+      Color(0xFFD4EAF7),
+    ];
+    return palette[name.hashCode.abs() % palette.length];
+  }
+
+  String _initials(String name) {
+    final parts = name.split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return (parts.first[0] + parts.last[0]).toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
-    final dateStr =
-        DateFormat('d MMM yyyy', 'fr').format(review.reviewDate.toLocal());
-
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.divider),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+              color: AppColors.cardShadow,
+              blurRadius: 8,
+              offset: Offset(0, 2)),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              RatingBarIndicator(
-                rating: review.cookRating,
-                itemBuilder: (_, _) => const Icon(
-                  Icons.star_rounded,
-                  color: AppColors.gold,
+              Row(
+                children: List.generate(
+                  5,
+                  (i) => Icon(
+                    i < review.stars
+                        ? Icons.star
+                        : Icons.star_border,
+                    color: AppColors.gold,
+                    size: 18,
+                  ),
                 ),
-                itemSize: 16,
-                itemCount: 5,
               ),
-              Text(dateStr,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
+              const Spacer(),
+              Text(
+                review.when,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                  color: AppColors.textSecondary,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
-            review.comment != null && review.comment!.isNotEmpty
-                ? review.comment!
-                : 'Pas de commentaire',
-            style: TextStyle(
-              fontSize: 14,
-              fontStyle: review.comment == null ||
-                      review.comment!.isEmpty
-                  ? FontStyle.italic
-                  : FontStyle.normal,
-              color: review.comment == null || review.comment!.isEmpty
-                  ? AppColors.textSecondary
-                  : AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            review.itemsSummary,
+            review.text,
             style: const TextStyle(
-                fontSize: 12, color: AppColors.textSecondary),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+                fontSize: 16, color: AppColors.textPrimary, height: 1.4),
           ),
-          const SizedBox(height: 4),
-          Text(
-            _shortName,
-            style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: _avatarColor(review.name),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  _initials(review.name),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                review.name,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  review.dish,
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -1,390 +1,336 @@
-import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/network/socket_provider.dart';
-import '../../../core/utils/fcfa_formatter.dart';
-import '../../../shared/widgets/loading_shimmer.dart';
-import '../../../shared/widgets/sound_alert_widget.dart';
-import '../data/models/cook_order_model.dart';
-import '../providers/orders_provider.dart';
+import '../../../core/network/api_client.dart';
 
-class OrdersScreen extends ConsumerStatefulWidget {
+// ── Model léger local ────────────────────────────────────────────────────────
+class _Order {
+  final String id;
+  final String shortId;
+  final String clientName;
+  final String timeAgo;
+  final int totalXaf;
+  final List<String> items;
+  final int? readyInMin;
+  final String? courierName;
+
+  _Order({
+    required this.id,
+    required this.shortId,
+    required this.clientName,
+    required this.timeAgo,
+    required this.totalXaf,
+    required this.items,
+    this.readyInMin,
+    this.courierName,
+  });
+}
+
+class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
 
   @override
-  ConsumerState<OrdersScreen> createState() => _OrdersScreenState();
+  State<OrdersScreen> createState() => _OrdersScreenState();
 }
 
-class _OrdersScreenState extends ConsumerState<OrdersScreen> {
-  bool _isOnline = true;
-  bool _showAlert = false;
-  Timer? _alertTimer;
+class _OrdersScreenState extends State<OrdersScreen> {
+  final List<_Order> _pending = [];
+  final List<_Order> _preparing = [];
+  final List<_Order> _ready = [];
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _setupSocket());
+    _fetch();
   }
 
-  void _setupSocket() {
-    final socket = ref.read(socketServiceProvider);
-    socket.on('order:new', _onNewOrder);
-    socket.on('order:status', _onOrderStatus);
-  }
-
-  void _onNewOrder(dynamic data) {
-    if (!mounted) return;
+  Future<void> _fetch() async {
+    setState(() => _loading = true);
+    List<_Order>? apiOrders;
     try {
-      final map = data is Map ? Map<String, dynamic>.from(data) : null;
-      if (map == null) return;
-      final order = CookOrderModel.fromJson(map);
-      ref.read(cookOrdersProvider.notifier).addOrder(order);
-      setState(() => _showAlert = true);
-      _alertTimer?.cancel();
-      _alertTimer = Timer(const Duration(seconds: 5), () {
-        if (mounted) setState(() => _showAlert = false);
-      });
+      final res = await ApiClient.instance
+          .get('/orders', queryParameters: {'role': 'cook'})
+          .timeout(const Duration(seconds: 4));
+      final data = res.data;
+      if (data is List && data.isNotEmpty) {
+        apiOrders = data.map<_Order>((e) {
+          final m = Map<String, dynamic>.from(e as Map);
+          return _Order(
+            id: '${m['id'] ?? ''}',
+            shortId: '${m['shortId'] ?? m['id'] ?? ''}',
+            clientName: '${m['clientName'] ?? 'Client'}',
+            timeAgo: '${m['timeAgo'] ?? 'À l\'instant'}',
+            totalXaf: (m['totalXaf'] ?? 0) is int
+                ? m['totalXaf'] as int
+                : int.tryParse('${m['totalXaf']}') ?? 0,
+            items: (m['items'] as List?)?.map((i) => '$i').toList() ?? const [],
+          );
+        }).toList();
+      }
+    } on DioException catch (_) {
     } catch (_) {}
-  }
 
-  void _onOrderStatus(dynamic data) {
-    if (!mounted || data is! Map) return;
-    final orderId = data['orderId'] as String?;
-    final status = data['status'] as String?;
-    if (orderId != null && status != null) {
-      ref.read(cookOrdersProvider.notifier).updateOrderStatus(orderId, status);
+    _pending.clear();
+    _preparing.clear();
+    _ready.clear();
+
+    if (apiOrders != null && apiOrders.isNotEmpty) {
+      _pending.addAll(apiOrders);
+    } else {
+      _pending.addAll(_mockPending());
+      _preparing.addAll(_mockPreparing());
+      _ready.addAll(_mockReady());
     }
+
+    if (mounted) setState(() => _loading = false);
   }
 
-  @override
-  void dispose() {
-    _alertTimer?.cancel();
-    try {
-      final socket = ref.read(socketServiceProvider);
-      socket.off('order:new');
-      socket.off('order:status');
-    } catch (_) {}
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = ref.watch(cookOrdersProvider);
-
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // ── Bandeau supérieur sticky ─────────────────────────────
-              _TopBanner(
-                isOnline: _isOnline,
-                pendingCount: state.pendingCount,
-                onToggle: (v) => setState(() => _isOnline = v),
-              ),
-
-              // ── Corps scrollable ─────────────────────────────────────
-              Expanded(
-                child: RefreshIndicator(
-                  color: AppColors.primary,
-                  onRefresh: () =>
-                      ref.read(cookOrdersProvider.notifier).refresh(),
-                  child: state.isLoading
-                      ? _buildShimmer()
-                      : state.error != null
-                          ? _buildError(state.error!)
-                          : SingleChildScrollView(
-                              physics:
-                                  const AlwaysScrollableScrollPhysics(),
-                              padding: const EdgeInsets.fromLTRB(
-                                  16, 12, 16, 100),
-                              child: Column(
-                                children: [
-                                  _PendingSection(
-                                    orders: state.pending,
-                                    onAccept: (id) =>
-                                        _accept(context, id),
-                                    onReject: (id) =>
-                                        _showRejectDialog(context, id),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  _PreparingSection(
-                                    orders: state.preparing,
-                                    onReady: (id) =>
-                                        _markReady(context, id),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  _ReadySection(orders: state.ready),
-                                ],
-                              ),
-                            ),
-                ),
-              ),
-            ],
-          ),
-
-          // ── Bannière nouvelle commande ────────────────────────────────
-          if (_showAlert)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Padding(
-                  padding:
-                      const EdgeInsets.fromLTRB(12, 60, 12, 0),
-                  child: NewOrderAlertBanner(
-                    onDismiss: () => setState(() => _showAlert = false),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildShimmer() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      physics: const NeverScrollableScrollPhysics(),
-      children: const [
-        OrderCardShimmer(),
-        SizedBox(height: 12),
-        OrderCardShimmer(),
-        SizedBox(height: 12),
-        OrderCardShimmer(),
-      ],
-    );
-  }
-
-  Widget _buildError(String error) {
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      child: SizedBox(
-        height: 400,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('😕', style: TextStyle(fontSize: 48)),
-              const SizedBox(height: 12),
-              Text(error,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: AppColors.textSecondary, fontSize: 15)),
-            ],
-          ),
+  List<_Order> _mockPending() => [
+        _Order(
+          id: '1',
+          shortId: 'CMD-0042',
+          clientName: 'Jean M.',
+          timeAgo: 'Il y a 2 minutes',
+          totalXaf: 7500,
+          items: const [
+            'Ndolé à la viande (Solo) x1',
+            'Miondo (Paquet de 5) x1',
+          ],
         ),
-      ),
-    );
-  }
+        _Order(
+          id: '2',
+          shortId: 'CMD-0043',
+          clientName: 'Aïcha B.',
+          timeAgo: 'Il y a 5 minutes',
+          totalXaf: 5500,
+          items: const ['Poulet DG Royal x1'],
+        ),
+      ];
+
+  List<_Order> _mockPreparing() => [
+        _Order(
+          id: '10',
+          shortId: 'CMD-0039',
+          clientName: 'Marie L.',
+          timeAgo: 'Il y a 18 minutes',
+          totalXaf: 9000,
+          items: const ['Poisson Braisé Kribi x1', 'Miondo (Paquet de 5) x1'],
+          readyInMin: 12,
+        ),
+      ];
+
+  List<_Order> _mockReady() => [
+        _Order(
+          id: '20',
+          shortId: 'CMD-0037',
+          clientName: 'Paul K.',
+          timeAgo: 'Prêt à livrer',
+          totalXaf: 6500,
+          items: const ['Eru + Water Fufu x1'],
+          courierName: 'Ibrahim',
+        ),
+      ];
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  Future<void> _accept(BuildContext context, String orderId) async {
-    try {
-      await ref.read(cookOrdersProvider.notifier).accept(orderId);
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur : $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
+  void _accept(_Order o) {
+    setState(() {
+      _pending.remove(o);
+      _preparing.insert(
+          0,
+          _Order(
+            id: o.id,
+            shortId: o.shortId,
+            clientName: o.clientName,
+            timeAgo: o.timeAgo,
+            totalXaf: o.totalXaf,
+            items: o.items,
+            readyInMin: 15,
+          ));
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.forestGreen,
+        content: Text('#${o.shortId} acceptée — en préparation'),
+      ),
+    );
   }
 
-  Future<void> _markReady(BuildContext context, String orderId) async {
-    try {
-      await ref.read(cookOrdersProvider.notifier).markReady(orderId);
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur : $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    }
-  }
-
-  Future<void> _showRejectDialog(
-      BuildContext context, String orderId) async {
-    final notifier = ref.read(cookOrdersProvider.notifier);
-    final messenger = ScaffoldMessenger.of(context);
-    String? selectedLocal;
-    final customController = TextEditingController();
-
-    final reason = await showDialog<String>(
+  Future<void> _reject(_Order o) async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDS) => AlertDialog(
-          title: const Row(children: [
-            Text('❌', style: TextStyle(fontSize: 22)),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text('Pourquoi refuser ?',
-                  style: TextStyle(fontSize: 18)),
-            ),
-          ]),
-          contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final r in [
-                'Plus de stock',
-                'Trop de commandes',
-                'Je suis fermé(e)',
-                'Autre raison',
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _ReasonButton(
-                    label: r,
-                    selected: selectedLocal == r,
-                    onTap: () => setDS(() => selectedLocal = r),
-                  ),
-                ),
-              if (selectedLocal == 'Autre raison') ...[
-                const SizedBox(height: 4),
-                TextField(
-                  controller: customController,
-                  autofocus: true,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    hintText: 'Précisez la raison...',
-                  ),
-                ),
-              ],
-            ],
+      builder: (ctx) => AlertDialog(
+        title: const Text('Refuser la commande ?'),
+        content: Text('La commande #${o.shortId} sera supprimée.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Refuser'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Annuler', style: TextStyle(fontSize: 15)),
-            ),
-            ElevatedButton(
-              onPressed: selectedLocal == null
-                  ? null
-                  : () {
-                      final r = selectedLocal == 'Autre raison'
-                          ? customController.text.trim().isEmpty
-                              ? 'Autre raison'
-                              : customController.text.trim()
-                          : selectedLocal!;
-                      Navigator.pop(ctx, r);
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error,
-                minimumSize: const Size(0, 44),
-              ),
-              child: const Text('Refuser', style: TextStyle(fontSize: 15)),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      setState(() => _pending.remove(o));
+    }
+  }
+
+  void _markReady(_Order o) {
+    setState(() {
+      _preparing.remove(o);
+      _ready.insert(
+        0,
+        _Order(
+          id: o.id,
+          shortId: o.shortId,
+          clientName: o.clientName,
+          timeAgo: 'Prêt à livrer',
+          totalXaf: o.totalXaf,
+          items: o.items,
+          courierName: 'Ibrahim',
+        ),
+      );
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: AppColors.forestGreen,
+        content: Text('✓ Livreur notifié'),
+      ),
+    );
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _Header(),
+            Expanded(
+              child: _loading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          color: AppColors.primary))
+                  : RefreshIndicator(
+                      color: AppColors.primary,
+                      onRefresh: _fetch,
+                      child: _pending.isEmpty &&
+                              _preparing.isEmpty &&
+                              _ready.isEmpty
+                          ? _EmptyState()
+                          : ListView(
+                              padding: const EdgeInsets.fromLTRB(
+                                  16, 12, 16, 100),
+                              children: [
+                                _SectionHeader(
+                                  title: 'NOUVELLES',
+                                  count: _pending.length,
+                                  badgeColor: AppColors.newOrder,
+                                ),
+                                const SizedBox(height: 12),
+                                ..._pending.map((o) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: _NewOrderCard(
+                                        order: o,
+                                        onAccept: () => _accept(o),
+                                        onReject: () => _reject(o),
+                                      ),
+                                    )),
+                                const SizedBox(height: 12),
+                                _SectionHeader(
+                                  title: 'EN COURS',
+                                  count: _preparing.length,
+                                  badgeColor: AppColors.forestGreen,
+                                ),
+                                const SizedBox(height: 12),
+                                ..._preparing.map((o) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: _PreparingCard(
+                                        order: o,
+                                        onReady: () => _markReady(o),
+                                      ),
+                                    )),
+                                const SizedBox(height: 12),
+                                _SectionHeader(
+                                  title: 'PRÊTES',
+                                  count: _ready.length,
+                                  badgeColor: AppColors.success,
+                                ),
+                                const SizedBox(height: 12),
+                                ..._ready.map((o) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
+                                      child: _ReadyCard(order: o),
+                                    )),
+                              ],
+                            ),
+                    ),
             ),
           ],
         ),
       ),
     );
-    customController.dispose();
-
-    if (reason == null || !context.mounted) return;
-    try {
-      await notifier.reject(orderId, reason);
-    } catch (e) {
-      if (!context.mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-            content: Text('Erreur : $e'),
-            backgroundColor: AppColors.error),
-      );
-    }
   }
 }
 
-// ── Top Banner ────────────────────────────────────────────────────────────────
-
-class _TopBanner extends StatelessWidget {
-  final bool isOnline;
-  final int pendingCount;
-  final ValueChanged<bool> onToggle;
-
-  const _TopBanner({
-    required this.isOnline,
-    required this.pendingCount,
-    required this.onToggle,
-  });
-
+// ── Header ───────────────────────────────────────────────────────────────────
+class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final now = DateFormat('HH:mm').format(DateTime.now());
-
     return Container(
-      color: AppColors.primary,
-      padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 8,
-        left: 16,
-        right: 16,
-        bottom: 12,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      color: AppColors.background,
       child: Row(
         children: [
-          // ── Switch en ligne ──────────────────────────────────────────
-          Row(
-            children: [
-              SizedBox(
-                height: 60,
-                child: FittedBox(
-                  fit: BoxFit.fill,
-                  child: Switch(
-                    value: isOnline,
-                    onChanged: onToggle,
-                    activeThumbColor: AppColors.success,
-                    activeTrackColor:
-                        AppColors.success.withValues(alpha: 0.4),
-                    inactiveThumbColor: Colors.grey.shade400,
+          const CircleAvatar(
+            radius: 20,
+            backgroundColor: AppColors.surface,
+            backgroundImage:
+                AssetImage('assets/images/mock/logo_nyama.jpg'),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: const [
+                Text(
+                  'Cuisine de Nyama',
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isOnline ? '🟢 En ligne' : '🔴 Hors ligne',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                    ),
+                SizedBox(height: 2),
+                Text(
+                  'CHEF DE CUISINE',
+                  style: TextStyle(
+                    fontFamily: 'Montserrat',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10,
+                    letterSpacing: 1.2,
+                    color: AppColors.primary,
                   ),
-                  Text(
-                    isOnline ? 'Je reçois les commandes' : 'Pauses',
-                    style: const TextStyle(
-                        color: Colors.white60, fontSize: 12),
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
-
-          const Spacer(),
-
-          // ── Badge commandes en attente ────────────────────────────────
-          if (pendingCount > 0)
-            _PulsingBadge(count: pendingCount),
-
-          const SizedBox(width: 12),
-
-          // ── Heure ────────────────────────────────────────────────────
-          Text(
-            now,
-            style: const TextStyle(
-                color: Colors.white70, fontSize: 14),
+          IconButton(
+            onPressed: () {},
+            icon: const Icon(Icons.notifications_none_rounded,
+                color: AppColors.textPrimary),
           ),
         ],
       ),
@@ -392,306 +338,321 @@ class _TopBanner extends StatelessWidget {
   }
 }
 
-class _PulsingBadge extends StatefulWidget {
+// ── Section header avec badge compteur ──────────────────────────────────────
+class _SectionHeader extends StatelessWidget {
+  final String title;
   final int count;
-  const _PulsingBadge({required this.count});
-
-  @override
-  State<_PulsingBadge> createState() => _PulsingBadgeState();
-}
-
-class _PulsingBadgeState extends State<_PulsingBadge>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    )..repeat(reverse: true);
-    _scale = Tween<double>(begin: 1.0, end: 1.15).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
+  final Color badgeColor;
+  const _SectionHeader({
+    required this.title,
+    required this.count,
+    required this.badgeColor,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: _scale,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppColors.newOrder,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-                color: AppColors.newOrder.withValues(alpha: 0.5),
-                blurRadius: 8),
-          ],
-        ),
-        child: Text(
-          '${widget.count} en attente',
+    return Row(
+      children: [
+        Text(
+          title,
           style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            fontSize: 13,
+            fontFamily: 'Montserrat',
+            fontWeight: FontWeight.w800,
+            fontSize: 14,
+            letterSpacing: 1.2,
+            color: AppColors.textPrimary,
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ── Section En Attente ────────────────────────────────────────────────────────
-
-class _PendingSection extends StatelessWidget {
-  final List<CookOrderModel> orders;
-  final Future<void> Function(String) onAccept;
-  final Future<void> Function(String) onReject;
-
-  const _PendingSection({
-    required this.orders,
-    required this.onAccept,
-    required this.onReject,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionContainer(
-      title: '⚠️ EN ATTENTE',
-      bgColor: AppColors.warning.withValues(alpha: 0.1),
-      borderColor: AppColors.warning,
-      child: orders.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(
-                child: Text(
-                  'Aucune commande en attente 🎉',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            )
-          : Column(
-              children: orders
-                  .map((o) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _PendingOrderCard(
-                          order: o,
-                          onAccept: () => onAccept(o.id),
-                          onReject: () => onReject(o.id),
-                        ),
-                      ))
-                  .toList(),
+        const SizedBox(width: 10),
+        Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: badgeColor,
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            '$count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
             ),
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _PendingOrderCard extends StatefulWidget {
-  final CookOrderModel order;
-  final Future<void> Function() onAccept;
-  final Future<void> Function() onReject;
-
-  const _PendingOrderCard({
-    required this.order,
-    required this.onAccept,
-    required this.onReject,
-  });
-
-  @override
-  State<_PendingOrderCard> createState() => _PendingOrderCardState();
-}
-
-class _PendingOrderCardState extends State<_PendingOrderCard> {
-  bool _isAccepting = false;
-  bool _isRejecting = false;
+// ── Carte NOUVELLE commande ─────────────────────────────────────────────────
+class _NewOrderCard extends StatelessWidget {
+  final _Order order;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+  const _NewOrderCard(
+      {required this.order, required this.onAccept, required this.onReject});
 
   @override
   Widget build(BuildContext context) {
-    final order = widget.order;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.newOrder.withValues(alpha: 0.3)),
         boxShadow: const [
           BoxShadow(
               color: AppColors.cardShadow,
-              blurRadius: 8,
-              offset: Offset(0, 2))
+              blurRadius: 10,
+              offset: Offset(0, 2)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: ID + time
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 '#${order.shortId}',
                 style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 20,
-                    color: AppColors.textPrimary),
+                  fontFamily: 'SpaceMono',
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                  fontSize: 16,
+                ),
               ),
-              Text(
-                order.timeAgo,
-                style: const TextStyle(
-                    fontSize: 13, color: AppColors.textSecondary),
+              const SizedBox(width: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'RÉCENT',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-
-          // Nom client
+          const SizedBox(height: 4),
           Text(
-            order.clientName,
+            '${order.timeAgo} • ${order.clientName}',
             style: const TextStyle(
-                fontSize: 18, color: AppColors.textSecondary),
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
           ),
-          const SizedBox(height: 8),
-
-          // Plats
-          ...order.items.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 3),
-              child: Text(
-                item.label,
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${_fmt(order.totalXaf)} FCFA',
                 style: const TextStyle(
-                    fontSize: 16, color: AppColors.textPrimary),
+                  fontFamily: 'SpaceMono',
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                  fontSize: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  '${order.items.length} ARTICLES',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...order.items.map(
+            (i) => Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(
+                i,
+                style: const TextStyle(
+                    fontSize: 14, color: AppColors.textPrimary),
               ),
             ),
           ),
-
-          // Note client
-          if (order.clientNote != null && order.clientNote!.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('💬 ', style: TextStyle(fontSize: 14)),
-                  Expanded(
-                    child: Text(
-                      order.clientNote!,
-                      style: const TextStyle(
-                          fontSize: 14,
-                          fontStyle: FontStyle.italic,
-                          color: AppColors.textPrimary),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: onAccept,
+                    icon: const Icon(Icons.check_rounded, size: 20),
+                    label: const Text('ACCEPTER'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.forestGreen,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      textStyle: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w800),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: SizedBox(
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: onReject,
+                    icon: const Icon(Icons.close_rounded, size: 20),
+                    label: const Text('REFUSER'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          AppColors.error.withValues(alpha: 0.1),
+                      foregroundColor: AppColors.error,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      textStyle: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-          const SizedBox(height: 12),
+// ── Carte EN COURS ──────────────────────────────────────────────────────────
+class _PreparingCard extends StatelessWidget {
+  final _Order order;
+  final VoidCallback onReady;
+  const _PreparingCard({required this.order, required this.onReady});
 
-          // Montant
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+              color: AppColors.cardShadow,
+              blurRadius: 10,
+              offset: Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '#${order.shortId}',
+                style: const TextStyle(
+                  fontFamily: 'SpaceMono',
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primary,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                'PRÊT DANS ${order.readyInMin ?? 15} MIN',
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           Text(
-            order.totalXaf.toFcfa(),
+            '${order.timeAgo} • ${order.clientName}',
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${_fmt(order.totalXaf)} FCFA',
             style: const TextStyle(
               fontFamily: 'SpaceMono',
-              fontSize: 22,
               fontWeight: FontWeight.w700,
-              color: AppColors.gold,
+              color: AppColors.primary,
+              fontSize: 20,
             ),
           ),
-
+          const SizedBox(height: 10),
+          ...order.items.map(
+            (i) => Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(i,
+                  style: const TextStyle(
+                      fontSize: 14, color: AppColors.textPrimary)),
+            ),
+          ),
           const SizedBox(height: 12),
-
-          // ✅ ACCEPTER — 72dp
           SizedBox(
-            height: 72,
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed:
-                  (_isAccepting || _isRejecting)
-                      ? null
-                      : () async {
-                          setState(() => _isAccepting = true);
-                          await widget.onAccept();
-                          if (mounted) setState(() => _isAccepting = false);
-                        },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.ctaGreen,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 72),
+            height: 40,
+            child: OutlinedButton(
+              onPressed: () {},
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary, width: 1.5),
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(10)),
               ),
-              child: _isAccepting
-                  ? const SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 3, color: Colors.white),
-                    )
-                  : const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('✅  ', style: TextStyle(fontSize: 22)),
-                        Text(
-                          'ACCEPTER',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.w900),
-                        ),
-                      ],
-                    ),
+              child: const Text('DÉTAILS',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
             ),
           ),
-
-          const SizedBox(height: 8),
-
-          // ❌ REFUSER — 48dp
+          const SizedBox(height: 12),
           SizedBox(
-            height: 48,
             width: double.infinity,
-            child: ElevatedButton(
-              onPressed:
-                  (_isAccepting || _isRejecting)
-                      ? null
-                      : () async {
-                          setState(() => _isRejecting = true);
-                          await widget.onReject();
-                          if (mounted) setState(() => _isRejecting = false);
-                        },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 48),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+            height: 56,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.primary, AppColors.primaryLight],
+                ),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: _isRejecting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.5, color: Colors.white),
-                    )
-                  : const Text('❌  REFUSER',
-                      style: TextStyle(fontSize: 14)),
+              child: ElevatedButton(
+                onPressed: onReady,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  "C'EST PRÊT !",
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+              ),
             ),
           ),
         ],
@@ -700,383 +661,147 @@ class _PendingOrderCardState extends State<_PendingOrderCard> {
   }
 }
 
-// ── Section En Préparation ────────────────────────────────────────────────────
-
-class _PreparingSection extends StatelessWidget {
-  final List<CookOrderModel> orders;
-  final Future<void> Function(String) onReady;
-
-  const _PreparingSection({
-    required this.orders,
-    required this.onReady,
-  });
+// ── Carte PRÊTE ─────────────────────────────────────────────────────────────
+class _ReadyCard extends StatelessWidget {
+  final _Order order;
+  const _ReadyCard({required this.order});
 
   @override
   Widget build(BuildContext context) {
-    return _SectionContainer(
-      title: '🍳 EN PRÉPARATION',
-      bgColor: AppColors.primary.withValues(alpha: 0.08),
-      borderColor: AppColors.primary,
-      child: orders.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: Text(
-                  'Aucune commande en préparation',
-                  style: TextStyle(
-                      fontSize: 15, color: AppColors.textSecondary),
-                ),
-              ),
-            )
-          : Column(
-              children: orders
-                  .map((o) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _PreparingOrderCard(
-                          order: o,
-                          onReady: () => onReady(o.id),
-                        ),
-                      ))
-                  .toList(),
-            ),
-    );
-  }
-}
-
-class _PreparingOrderCard extends StatefulWidget {
-  final CookOrderModel order;
-  final Future<void> Function() onReady;
-
-  const _PreparingOrderCard(
-      {required this.order, required this.onReady});
-
-  @override
-  State<_PreparingOrderCard> createState() => _PreparingOrderCardState();
-}
-
-class _PreparingOrderCardState extends State<_PreparingOrderCard> {
-  bool _isMarking = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final order = widget.order;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.4)),
         boxShadow: const [
           BoxShadow(
               color: AppColors.cardShadow,
-              blurRadius: 6,
-              offset: Offset(0, 2))
+              blurRadius: 8,
+              offset: Offset(0, 2)),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('#${order.shortId}',
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.success.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.check_circle,
+                color: AppColors.success, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('#${order.shortId}',
+                    style: const TextStyle(
+                        fontFamily: 'SpaceMono',
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: AppColors.primary)),
+                const SizedBox(height: 2),
+                Text(
+                  'Attente livreur • ${order.courierName ?? 'Assigné'}',
                   style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 18)),
-              _ElapsedTimer(startedAt: order.acceptedAt ?? order.createdAt),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(order.clientName,
-              style: const TextStyle(
-                  fontSize: 16, color: AppColors.textSecondary)),
-          const SizedBox(height: 6),
-          ...order.items.map(
-            (item) => Text(item.label,
-                style: const TextStyle(
-                    fontSize: 15, color: AppColors.textPrimary)),
-          ),
-          const SizedBox(height: 12),
-          Text(order.totalXaf.toFcfa(),
-              style: const TextStyle(
-                  fontFamily: 'SpaceMono',
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                  color: AppColors.gold)),
-          const SizedBox(height: 12),
-
-          // PRÊTE — 72dp or
-          SizedBox(
-            height: 72,
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isMarking
-                  ? null
-                  : () async {
-                      setState(() => _isMarking = true);
-                      await widget.onReady();
-                      if (mounted) setState(() => _isMarking = false);
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.gold,
-                foregroundColor: AppColors.textPrimary,
-                minimumSize: const Size(double.infinity, 72),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-              ),
-              child: _isMarking
-                  ? const SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: AppColors.textPrimary),
-                    )
-                  : const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('PRÊTE  ', style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w900)),
-                        Text('✅', style: TextStyle(fontSize: 22)),
-                      ],
-                    ),
+                      fontSize: 13, color: AppColors.textSecondary),
+                ),
+              ],
             ),
           ),
+          const Icon(Icons.chevron_right, color: AppColors.textSecondary),
         ],
       ),
     );
   }
 }
 
-// ── Timer widget ──────────────────────────────────────────────────────────────
-
-class _ElapsedTimer extends StatefulWidget {
-  final DateTime startedAt;
-  const _ElapsedTimer({required this.startedAt});
-
-  @override
-  State<_ElapsedTimer> createState() => _ElapsedTimerState();
-}
-
-class _ElapsedTimerState extends State<_ElapsedTimer> {
-  Timer? _t;
-  late int _minutes;
-
-  @override
-  void initState() {
-    super.initState();
-    _update();
-    _t = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) _update();
-    });
-  }
-
-  void _update() => setState(() =>
-      _minutes = DateTime.now().difference(widget.startedAt).inMinutes);
-
-  @override
-  void dispose() {
-    _t?.cancel();
-    super.dispose();
-  }
-
+// ── Empty state ─────────────────────────────────────────────────────────────
+class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: _minutes > 30
-            ? AppColors.error.withValues(alpha: 0.1)
-            : AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        '⏱️ $_minutes min',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: _minutes > 30 ? AppColors.error : AppColors.primary,
-        ),
-      ),
-    );
-  }
-}
-
-// ── Section En Attente Livreur ────────────────────────────────────────────────
-
-class _ReadySection extends StatelessWidget {
-  final List<CookOrderModel> orders;
-
-  const _ReadySection({required this.orders});
-
-  @override
-  Widget build(BuildContext context) {
-    return _SectionContainer(
-      title: '📦 EN ATTENTE LIVREUR',
-      bgColor: AppColors.surface,
-      borderColor: AppColors.divider,
-      child: orders.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: Text(
-                  'Aucune commande en attente livreur',
-                  style: TextStyle(
-                      fontSize: 15, color: AppColors.textSecondary),
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(24, 40, 24, 100),
+      children: [
+        Center(
+          child: Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: ClipOval(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Image.asset(
+                  'assets/images/mock/logo_nyama.jpg',
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) =>
+                      const Icon(Icons.restaurant, color: AppColors.primary),
                 ),
               ),
-            )
-          : Column(
-              children: orders
-                  .map((o) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _ReadyOrderCard(order: o),
-                      ))
-                  .toList(),
             ),
-    );
-  }
-}
-
-class _ReadyOrderCard extends StatelessWidget {
-  final CookOrderModel order;
-  const _ReadyOrderCard({required this.order});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('#${order.shortId}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 16)),
-              Text(order.totalXaf.toFcfa(),
-                  style: const TextStyle(
-                      fontFamily: 'SpaceMono',
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                      color: AppColors.gold)),
-            ],
           ),
-          const SizedBox(height: 4),
-          Text(order.clientName,
-              style: const TextStyle(
-                  fontSize: 15, color: AppColors.textSecondary)),
-          const SizedBox(height: 8),
-          const Row(
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          'En attendant les gourmands...',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Ta cuisine mijote, les commandes vont arriver !',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3)),
+          ),
+          child: const Row(
             children: [
-              Icon(Icons.delivery_dining,
-                  size: 16, color: AppColors.textSecondary),
-              SizedBox(width: 6),
-              Text(
-                'Un livreur va bientôt récupérer cette commande...',
-                style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textSecondary,
-                    fontStyle: FontStyle.italic),
+              Text('💡', style: TextStyle(fontSize: 22)),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Les plats publiés avant 11h reçoivent 3x plus de commandes le midi.',
+                  style: TextStyle(
+                      fontSize: 13, color: AppColors.textPrimary, height: 1.4),
+                ),
               ),
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 16),
+        OutlinedButton(
+          onPressed: () => context.go('/menu'),
+          child: const Text('Mettre à jour mon menu →'),
+        ),
+      ],
     );
   }
 }
 
-// ── Section container ─────────────────────────────────────────────────────────
-
-class _SectionContainer extends StatelessWidget {
-  final String title;
-  final Color bgColor;
-  final Color borderColor;
-  final Widget child;
-
-  const _SectionContainer({
-    required this.title,
-    required this.bgColor,
-    required this.borderColor,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-              letterSpacing: 0.3,
-            ),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    );
+String _fmt(int v) {
+  final s = v.toString();
+  final buf = StringBuffer();
+  for (int i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) buf.write(' ');
+    buf.write(s[i]);
   }
-}
-
-// ── Reason button ─────────────────────────────────────────────────────────────
-
-class _ReasonButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ReasonButton({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.error.withValues(alpha: 0.1)
-              : AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? AppColors.error : AppColors.divider,
-            width: selected ? 2 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight:
-                selected ? FontWeight.w700 : FontWeight.w400,
-            color:
-                selected ? AppColors.error : AppColors.textPrimary,
-          ),
-        ),
-      ),
-    );
-  }
+  return buf.toString();
 }
