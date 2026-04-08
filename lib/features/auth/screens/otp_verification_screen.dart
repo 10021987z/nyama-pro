@@ -118,11 +118,17 @@ class _OtpVerificationScreenState
         ),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: LayoutBuilder(
+          builder: (ctx, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - 48,
+              ),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
               const Text('📱', style: TextStyle(fontSize: 48)),
               const SizedBox(height: 16),
               const Text(
@@ -227,7 +233,10 @@ class _OtpVerificationScreenState
                 ),
 
               const SizedBox(height: 16),
-            ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

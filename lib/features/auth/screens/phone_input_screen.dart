@@ -64,11 +64,17 @@ class _PhoneInputScreenState extends ConsumerState<PhoneInputScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
+        child: LayoutBuilder(
+          builder: (ctx, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - 48,
+              ),
+              child: IntrinsicHeight(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 32),
@@ -176,6 +182,9 @@ class _PhoneInputScreenState extends ConsumerState<PhoneInputScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
