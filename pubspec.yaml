@@ -53,6 +53,12 @@ dependencies:
   # SVG support
   flutter_svg: ^2.0.0
 
+  # Géolocalisation (adresse cuisinière)
+  geolocator: ^13.0.1
+
+  # Polices Google (fallback Montserrat/NunitoSans)
+  google_fonts: ^6.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -64,6 +70,7 @@ flutter:
   assets:
     - assets/sounds/
     - assets/images/
+    - assets/images/mock/
     - assets/
 
   fonts:

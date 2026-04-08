@@ -74,7 +74,7 @@ class _OtpVerificationScreenState
             onPressed: () {
               Navigator.pop(ctx);
               ref.read(authStateProvider.notifier).logout();
-              context.go('/phone');
+              context.go('/login');
             },
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 48),
@@ -95,7 +95,7 @@ class _OtpVerificationScreenState
 
     ref.listen<AuthState>(authStateProvider, (_, next) {
       if (next.status == AuthStatus.authenticated) {
-        context.go('/orders');
+        context.go('/home');
       }
       if (next.status == AuthStatus.error) {
         _controller.clear();
@@ -114,7 +114,7 @@ class _OtpVerificationScreenState
         foregroundColor: AppColors.textPrimary,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, size: 22),
-          onPressed: () => context.go('/phone'),
+          onPressed: () => context.go('/login'),
         ),
       ),
       body: SafeArea(

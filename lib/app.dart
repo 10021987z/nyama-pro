@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'core/constants/app_colors.dart';
 import 'core/network/api_client.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/screens/splash_screen.dart';
@@ -15,7 +16,7 @@ import 'features/history/screens/history_detail_screen.dart';
 import 'features/orders/data/models/cook_order_model.dart';
 import 'features/reviews/screens/reviews_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
-import 'core/constants/app_colors.dart';
+import 'shared/widgets/pro_bottom_nav_bar.dart';
 
 class App extends StatelessWidget {
   App({super.key});
@@ -28,8 +29,9 @@ class App extends StatelessWidget {
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
       ),
+      // Login = saisie téléphone + OTP (flux identique au client)
       GoRoute(
-        path: '/phone',
+        path: '/login',
         builder: (context, state) => const PhoneInputScreen(),
       ),
       GoRoute(
@@ -38,6 +40,11 @@ class App extends StatelessWidget {
           final phone = state.extra as String? ?? '';
           return OtpVerificationScreen(phone: phone);
         },
+      ),
+      // Shell principal avec bottom nav 4 tabs (Commandes/Menu/Revenus/Avis)
+      GoRoute(
+        path: '/home',
+        builder: (context, state) => const MainShell(initialIndex: 0),
       ),
       GoRoute(
         path: '/orders',
@@ -61,6 +68,10 @@ class App extends StatelessWidget {
         builder: (context, state) => const MainShell(initialIndex: 2),
       ),
       GoRoute(
+        path: '/reviews',
+        builder: (context, state) => const MainShell(initialIndex: 3),
+      ),
+      GoRoute(
         path: '/history',
         builder: (context, state) => const HistoryScreen(),
       ),
@@ -73,13 +84,10 @@ class App extends StatelessWidget {
               : null,
         ),
       ),
-      GoRoute(
-        path: '/reviews',
-        builder: (context, state) => const ReviewsScreen(),
-      ),
+      // Profil accessible via l'avatar du header (hors shell)
       GoRoute(
         path: '/profile',
-        builder: (context, state) => const MainShell(initialIndex: 3),
+        builder: (context, state) => const ProfileScreen(),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(
@@ -92,7 +100,7 @@ class App extends StatelessWidget {
             const Text('Page introuvable'),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: () => context.go('/orders'),
+              onPressed: () => context.go('/home'),
               child: const Text('Accueil'),
             ),
           ],
@@ -104,7 +112,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'NYAMA Pro',
+      title: 'Cuisine de Nyama',
       theme: AppTheme.light,
       routerConfig: _router,
       debugShowCheckedModeBanner: false,
@@ -117,7 +125,7 @@ class App extends StatelessWidget {
   }
 }
 
-// ── Shell principal avec navigation par onglets ───────────────────────────────
+// ── Shell principal avec bottom nav 4 tabs ──────────────────────────────────
 
 class MainShell extends StatefulWidget {
   final int initialIndex;
@@ -135,7 +143,7 @@ class _MainShellState extends State<MainShell> {
     OrdersScreen(),
     MenuScreen(),
     RevenueScreen(),
-    ProfileScreen(),
+    ReviewsScreen(),
   ];
 
   @override
@@ -147,16 +155,16 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.creme,
       body: Stack(
         children: [
           IndexedStack(
             index: _currentIndex,
             children: _screens,
           ),
-          // ── Offline banner ───────────────────────────────────────────
           ValueListenableBuilder<bool>(
             valueListenable: offlineNotifier,
-            builder: (_, isOffline, _) {
+            builder: (context, isOffline, child) {
               if (!isOffline) return const SizedBox.shrink();
               return Positioned(
                 top: 0,
@@ -165,16 +173,26 @@ class _MainShellState extends State<MainShell> {
                 child: SafeArea(
                   bottom: false,
                   child: Container(
-                    color: AppColors.error,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    alignment: Alignment.center,
-                    child: const Text(
-                      '📡 Hors connexion',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    color: Colors.orange.withValues(alpha: 0.1),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.wifi_off,
+                            color: Colors.orange, size: 18),
+                        SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            'Mode hors-ligne — Les données peuvent ne pas être à jour',
+                            style: TextStyle(
+                              color: Color(0xFF3D3D3D),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -183,31 +201,9 @@ class _MainShellState extends State<MainShell> {
           ),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: ProBottomNavBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long_outlined),
-            activeIcon: Icon(Icons.receipt_long),
-            label: 'Commandes',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.restaurant_menu_outlined),
-            activeIcon: Icon(Icons.restaurant_menu),
-            label: 'Menu',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart_outlined),
-            activeIcon: Icon(Icons.bar_chart),
-            label: 'Revenus',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profil',
-          ),
-        ],
       ),
     );
   }
