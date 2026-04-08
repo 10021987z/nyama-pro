@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'app.dart';
+import 'core/services/push_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +16,9 @@ void main() async {
 
   // Initialise les locales françaises pour intl
   await initializeDateFormatting('fr_FR', null);
+
+  // Initialise les notifications push (no-op si Firebase non configuré)
+  await PushNotificationService.instance.init();
 
   runApp(
     ProviderScope(

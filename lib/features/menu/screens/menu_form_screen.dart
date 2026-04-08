@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../data/models/menu_item_model.dart';
 import '../providers/menu_provider.dart';
@@ -43,6 +45,7 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
   String? _selectedCategory;
   double _prepTime = 20;
   bool _isDailySpecial = false;
+  File? _pickedPhoto;
 
   bool get _isEdit => widget.item != null;
 
@@ -68,6 +71,36 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
     _priceCtrl.dispose();
     _stockCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickPhoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt,
+                  color: AppColors.primary),
+              title: const Text('Prendre une photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library,
+                  color: AppColors.primary),
+              title: const Text('Choisir dans la galerie'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    final picked = await ImagePicker().pickImage(source: source);
+    if (picked != null && mounted) {
+      setState(() => _pickedPhoto = File(picked.path));
+    }
   }
 
   // ── Save ───────────────────────────────────────────────────────────────────
@@ -196,28 +229,58 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            // ── 1. Photo placeholder ───────────────────────────────────
-            Center(
-              child: Column(
-                children: [
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.divider, width: 2),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Text('📸', style: TextStyle(fontSize: 48)),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Photo (bientôt disponible)',
-                    style: TextStyle(
-                        fontSize: 13, color: AppColors.textSecondary),
-                  ),
-                ],
+            // ── 1. Photo ───────────────────────────────────────────────
+            GestureDetector(
+              onTap: _pickPhoto,
+              child: Container(
+                height: 160,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: AppColors.divider, width: 1),
+                  image: _pickedPhoto != null
+                      ? DecorationImage(
+                          image: FileImage(_pickedPhoto!),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+                ),
+                child: _pickedPhoto == null
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.camera_alt,
+                              color: AppColors.primary, size: 40),
+                          SizedBox(height: 6),
+                          Text(
+                            'Ajouter une photo',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary),
+                          ),
+                        ],
+                      )
+                    : Align(
+                        alignment: Alignment.topRight,
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: GestureDetector(
+                            onTap: () =>
+                                setState(() => _pickedPhoto = null),
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close,
+                                  color: Colors.white, size: 18),
+                            ),
+                          ),
+                        ),
+                      ),
               ),
             ),
             const SizedBox(height: 24),

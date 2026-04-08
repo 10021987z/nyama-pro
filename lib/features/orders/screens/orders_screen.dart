@@ -293,11 +293,14 @@ class _Header extends StatelessWidget {
       color: AppColors.background,
       child: Row(
         children: [
-          const CircleAvatar(
-            radius: 20,
-            backgroundColor: AppColors.surface,
-            backgroundImage:
-                AssetImage('assets/images/mock/logo_nyama.jpg'),
+          GestureDetector(
+            onTap: () => context.push('/profile'),
+            child: const CircleAvatar(
+              radius: 20,
+              backgroundColor: AppColors.surface,
+              backgroundImage:
+                  AssetImage('assets/images/mock/logo_nyama.jpg'),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -328,7 +331,7 @@ class _Header extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: () {},
+            onPressed: () => _openNotificationsSheet(context),
             icon: const Icon(Icons.notifications_none_rounded,
                 color: AppColors.textPrimary),
           ),
@@ -794,6 +797,54 @@ class _EmptyState extends StatelessWidget {
       ],
     );
   }
+}
+
+void _openNotificationsSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (ctx) => Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.notifications_none,
+              size: 56, color: AppColors.textSecondary),
+          const SizedBox(height: 12),
+          const Text(
+            'Aucune nouvelle notification',
+            style: TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Tu seras prévenue dès qu\'une commande arrive',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                fontSize: 14, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Activer les notifications'),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 String _fmt(int v) {

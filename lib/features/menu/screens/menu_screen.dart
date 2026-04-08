@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 
 class _Dish {
@@ -10,6 +12,7 @@ class _Dish {
   final String image;
   final String badge; // CHEF'S KISS / POPULAIRE / FRAIS DU JOUR
   bool available = true;
+  File? localImage;
 
   _Dish({
     required this.name,
@@ -64,6 +67,36 @@ class _MenuScreenState extends State<MenuScreen> {
     'Grillades',
     'Boissons',
   ];
+
+  Future<void> _pickImageFor(_Dish d) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt,
+                  color: AppColors.primary),
+              title: const Text('Prendre une photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library,
+                  color: AppColors.primary),
+              title: const Text('Choisir dans la galerie'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    final picked = await ImagePicker().pickImage(source: source);
+    if (picked != null && mounted) {
+      setState(() => d.localImage = File(picked.path));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -161,6 +194,7 @@ class _MenuScreenState extends State<MenuScreen> {
                     padding: const EdgeInsets.only(bottom: 14),
                     child: _DishCard(
                       dish: d,
+                      onPickImage: () => _pickImageFor(d),
                       onToggle: (v) {
                         setState(() => d.available = v);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -186,7 +220,12 @@ class _MenuScreenState extends State<MenuScreen> {
 class _DishCard extends StatelessWidget {
   final _Dish dish;
   final ValueChanged<bool> onToggle;
-  const _DishCard({required this.dish, required this.onToggle});
+  final VoidCallback onPickImage;
+  const _DishCard({
+    required this.dish,
+    required this.onToggle,
+    required this.onPickImage,
+  });
 
   Color _badgeColor() {
     switch (dish.badge) {
@@ -216,9 +255,18 @@ class _DishCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
+          GestureDetector(
+            onTap: onPickImage,
+            child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.asset(
+            child: dish.localImage != null
+                ? Image.file(
+                    dish.localImage!,
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.cover,
+                  )
+                : Image.asset(
               dish.image,
               width: 120,
               height: 120,
@@ -237,6 +285,7 @@ class _DishCard extends StatelessWidget {
                 child: const Icon(Icons.restaurant_menu,
                     color: Colors.white, size: 40),
               ),
+            ),
             ),
           ),
           const SizedBox(width: 12),

@@ -36,6 +36,19 @@ class _RevenueScreenState extends State<RevenueScreen> {
     ),
   ];
 
+  void _openTransferSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => const _TransferMomoSheet(balance: 147500),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -148,7 +161,7 @@ class _RevenueScreenState extends State<RevenueScreen> {
                     width: double.infinity,
                     height: 44,
                     child: ElevatedButton(
-                      onPressed: () {},
+                      onPressed: () => _openTransferSheet(context),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
                             Colors.white.withValues(alpha: 0.2),
@@ -333,6 +346,238 @@ class _TopDishCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Transfer MoMo BottomSheet ────────────────────────────────────────────────
+class _TransferMomoSheet extends StatefulWidget {
+  final int balance;
+  const _TransferMomoSheet({required this.balance});
+
+  @override
+  State<_TransferMomoSheet> createState() => _TransferMomoSheetState();
+}
+
+class _TransferMomoSheetState extends State<_TransferMomoSheet> {
+  late final TextEditingController _amountCtrl;
+  late final TextEditingController _phoneCtrl;
+  String _method = 'mtn';
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _amountCtrl =
+        TextEditingController(text: widget.balance.toString());
+    _phoneCtrl = TextEditingController(text: '+237 6XX XXX XXX');
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    _phoneCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirm() async {
+    final amountText = _amountCtrl.text.trim();
+    final amount = int.tryParse(amountText) ?? 0;
+    if (amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Montant invalide')),
+      );
+      return;
+    }
+    setState(() => _loading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.success,
+        content: Text(
+            'Transfert de ${_fmt(amount)} FCFA initié vers MoMo !'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.divider,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Transférer mes gains',
+            style: TextStyle(
+                fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${_fmt(widget.balance)} FCFA',
+            style: const TextStyle(
+              fontFamily: 'SpaceMono',
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _amountCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Montant à transférer (FCFA)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Méthode de paiement',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 8),
+          _MethodRadio(
+            value: 'mtn',
+            groupValue: _method,
+            label: 'MTN Mobile Money',
+            color: const Color(0xFFFFCC00),
+            onChanged: (v) => setState(() => _method = v),
+          ),
+          _MethodRadio(
+            value: 'orange',
+            groupValue: _method,
+            label: 'Orange Money',
+            color: AppColors.primary,
+            onChanged: (v) => setState(() => _method = v),
+          ),
+          _MethodRadio(
+            value: 'falla',
+            groupValue: _method,
+            label: 'Falla Mobile Money',
+            color: AppColors.forestGreen,
+            onChanged: (v) => setState(() => _method = v),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _phoneCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Numéro de téléphone',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 56,
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _confirm,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.forestGreen,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              child: _loading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : const Text(
+                      'Confirmer le transfert',
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Les transferts sont instantanés vers votre numéro enregistré. Des frais d\'opérateur peuvent s\'appliquer.',
+            style: TextStyle(
+                fontSize: 11, color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MethodRadio extends StatelessWidget {
+  final String value;
+  final String groupValue;
+  final String label;
+  final Color color;
+  final ValueChanged<String> onChanged;
+  const _MethodRadio({
+    required this.value,
+    required this.groupValue,
+    required this.label,
+    required this.color,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = value == groupValue;
+    return InkWell(
+      onTap: () => onChanged(value),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? color : AppColors.divider,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.account_balance_wallet,
+                  color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+            Radio<String>(
+              value: value,
+              groupValue: groupValue,
+              onChanged: (v) => onChanged(v ?? value),
+              activeColor: color,
+            ),
+          ],
+        ),
       ),
     );
   }

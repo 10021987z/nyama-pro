@@ -44,6 +44,12 @@ class SecureStorage {
   static Future<String?> getCookId() =>
       _storage.read(key: ApiConstants.cookIdKey);
 
+  // ── FCM Token ─────────────────────────────────────────────────────────────
+  static Future<void> saveFcmToken(String token) =>
+      _storage.write(key: 'fcm_token', value: token);
+
+  static Future<String?> getFcmToken() => _storage.read(key: 'fcm_token');
+
   // ── Session check ─────────────────────────────────────────────────────────
   static Future<bool> isLoggedIn() async {
     final token = await getAccessToken();
