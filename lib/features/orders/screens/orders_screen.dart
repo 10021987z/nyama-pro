@@ -1,214 +1,30 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/network/api_client.dart';
+import '../data/models/cook_order_model.dart';
+import '../providers/orders_provider.dart';
 
-// ── Model léger local ────────────────────────────────────────────────────────
-class _Order {
-  final String id;
-  final String shortId;
-  final String clientName;
-  final String timeAgo;
-  final int totalXaf;
-  final List<String> items;
-  final int? readyInMin;
-  final String? courierName;
-
-  _Order({
-    required this.id,
-    required this.shortId,
-    required this.clientName,
-    required this.timeAgo,
-    required this.totalXaf,
-    required this.items,
-    this.readyInMin,
-    this.courierName,
-  });
-}
-
-class OrdersScreen extends StatefulWidget {
+class OrdersScreen extends ConsumerStatefulWidget {
   const OrdersScreen({super.key});
 
   @override
-  State<OrdersScreen> createState() => _OrdersScreenState();
+  ConsumerState<OrdersScreen> createState() => _OrdersScreenState();
 }
 
-class _OrdersScreenState extends State<OrdersScreen> {
-  final List<_Order> _pending = [];
-  final List<_Order> _preparing = [];
-  final List<_Order> _ready = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch();
-  }
-
-  Future<void> _fetch() async {
-    setState(() => _loading = true);
-    List<_Order>? apiOrders;
-    try {
-      final res = await ApiClient.instance
-          .get('/orders', queryParameters: {'role': 'cook'})
-          .timeout(const Duration(seconds: 4));
-      final data = res.data;
-      if (data is List && data.isNotEmpty) {
-        apiOrders = data.map<_Order>((e) {
-          final m = Map<String, dynamic>.from(e as Map);
-          return _Order(
-            id: '${m['id'] ?? ''}',
-            shortId: '${m['shortId'] ?? m['id'] ?? ''}',
-            clientName: '${m['clientName'] ?? 'Client'}',
-            timeAgo: '${m['timeAgo'] ?? 'À l\'instant'}',
-            totalXaf: (m['totalXaf'] ?? 0) is int
-                ? m['totalXaf'] as int
-                : int.tryParse('${m['totalXaf']}') ?? 0,
-            items: (m['items'] as List?)?.map((i) => '$i').toList() ?? const [],
-          );
-        }).toList();
-      }
-    } on DioException catch (_) {
-    } catch (_) {}
-
-    _pending.clear();
-    _preparing.clear();
-    _ready.clear();
-
-    if (apiOrders != null && apiOrders.isNotEmpty) {
-      _pending.addAll(apiOrders);
-    } else {
-      _pending.addAll(_mockPending());
-      _preparing.addAll(_mockPreparing());
-      _ready.addAll(_mockReady());
-    }
-
-    if (mounted) setState(() => _loading = false);
-  }
-
-  List<_Order> _mockPending() => [
-        _Order(
-          id: '1',
-          shortId: 'CMD-0042',
-          clientName: 'Jean M.',
-          timeAgo: 'Il y a 2 minutes',
-          totalXaf: 7500,
-          items: const [
-            'Ndolé à la viande (Solo) x1',
-            'Miondo (Paquet de 5) x1',
-          ],
-        ),
-        _Order(
-          id: '2',
-          shortId: 'CMD-0043',
-          clientName: 'Aïcha B.',
-          timeAgo: 'Il y a 5 minutes',
-          totalXaf: 5500,
-          items: const ['Poulet DG Royal x1'],
-        ),
-      ];
-
-  List<_Order> _mockPreparing() => [
-        _Order(
-          id: '10',
-          shortId: 'CMD-0039',
-          clientName: 'Marie L.',
-          timeAgo: 'Il y a 18 minutes',
-          totalXaf: 9000,
-          items: const ['Poisson Braisé Kribi x1', 'Miondo (Paquet de 5) x1'],
-          readyInMin: 12,
-        ),
-      ];
-
-  List<_Order> _mockReady() => [
-        _Order(
-          id: '20',
-          shortId: 'CMD-0037',
-          clientName: 'Paul K.',
-          timeAgo: 'Prêt à livrer',
-          totalXaf: 6500,
-          items: const ['Eru + Water Fufu x1'],
-          courierName: 'Ibrahim',
-        ),
-      ];
-
-  // ── Actions ────────────────────────────────────────────────────────────────
-
-  void _accept(_Order o) {
-    setState(() {
-      _pending.remove(o);
-      _preparing.insert(
-          0,
-          _Order(
-            id: o.id,
-            shortId: o.shortId,
-            clientName: o.clientName,
-            timeAgo: o.timeAgo,
-            totalXaf: o.totalXaf,
-            items: o.items,
-            readyInMin: 15,
-          ));
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.forestGreen,
-        content: Text('#${o.shortId} acceptée — en préparation'),
-      ),
-    );
-  }
-
-  Future<void> _reject(_Order o) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Refuser la commande ?'),
-        content: Text('La commande #${o.shortId} sera supprimée.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Refuser'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      setState(() => _pending.remove(o));
-    }
-  }
-
-  void _markReady(_Order o) {
-    setState(() {
-      _preparing.remove(o);
-      _ready.insert(
-        0,
-        _Order(
-          id: o.id,
-          shortId: o.shortId,
-          clientName: o.clientName,
-          timeAgo: 'Prêt à livrer',
-          totalXaf: o.totalXaf,
-          items: o.items,
-          courierName: 'Ibrahim',
-        ),
-      );
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppColors.forestGreen,
-        content: Text('✓ Livreur notifié'),
-      ),
-    );
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
-
+class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   @override
   Widget build(BuildContext context) {
+    final state = ref.watch(cookOrdersProvider);
+
+    // Fallback mock when API returns empty/error and lists are all empty
+    final useMock = !state.isLoading && state.isEmpty && state.error != null;
+
+    final pending = useMock ? _mockPending() : state.pending;
+    final preparing = useMock ? _mockPreparing() : state.preparing;
+    final ready = useMock ? _mockReady() : state.ready;
+    final allEmpty = pending.isEmpty && preparing.isEmpty && ready.isEmpty;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -216,28 +32,27 @@ class _OrdersScreenState extends State<OrdersScreen> {
           children: [
             _Header(),
             Expanded(
-              child: _loading
+              child: state.isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(
-                          color: AppColors.primary))
+                      child:
+                          CircularProgressIndicator(color: AppColors.primary))
                   : RefreshIndicator(
                       color: AppColors.primary,
-                      onRefresh: _fetch,
-                      child: _pending.isEmpty &&
-                              _preparing.isEmpty &&
-                              _ready.isEmpty
+                      onRefresh: () =>
+                          ref.read(cookOrdersProvider.notifier).refresh(),
+                      child: allEmpty
                           ? _EmptyState()
                           : ListView(
-                              padding: const EdgeInsets.fromLTRB(
-                                  16, 12, 16, 100),
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 12, 16, 100),
                               children: [
                                 _SectionHeader(
                                   title: 'NOUVELLES',
-                                  count: _pending.length,
+                                  count: pending.length,
                                   badgeColor: AppColors.newOrder,
                                 ),
                                 const SizedBox(height: 12),
-                                ..._pending.map((o) => Padding(
+                                ...pending.map((o) => Padding(
                                       padding:
                                           const EdgeInsets.only(bottom: 12),
                                       child: _NewOrderCard(
@@ -249,11 +64,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 const SizedBox(height: 12),
                                 _SectionHeader(
                                   title: 'EN COURS',
-                                  count: _preparing.length,
+                                  count: preparing.length,
                                   badgeColor: AppColors.forestGreen,
                                 ),
                                 const SizedBox(height: 12),
-                                ..._preparing.map((o) => Padding(
+                                ...preparing.map((o) => Padding(
                                       padding:
                                           const EdgeInsets.only(bottom: 12),
                                       child: _PreparingCard(
@@ -263,12 +78,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                     )),
                                 const SizedBox(height: 12),
                                 _SectionHeader(
-                                  title: 'PRÊTES',
-                                  count: _ready.length,
+                                  title: 'PRETES',
+                                  count: ready.length,
                                   badgeColor: AppColors.success,
                                 ),
                                 const SizedBox(height: 12),
-                                ..._ready.map((o) => Padding(
+                                ...ready.map((o) => Padding(
                                       padding:
                                           const EdgeInsets.only(bottom: 10),
                                       child: _ReadyCard(order: o),
@@ -282,6 +97,167 @@ class _OrdersScreenState extends State<OrdersScreen> {
       ),
     );
   }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  Future<void> _accept(CookOrderModel o) async {
+    try {
+      await ref.read(cookOrdersProvider.notifier).accept(o.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.forestGreen,
+          content: Text('#${o.shortId} acceptee - en preparation'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          content: Text('Erreur : $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _reject(CookOrderModel o) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Refuser la commande ?'),
+        content: Text('La commande #${o.shortId} sera supprimee.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Refuser'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ref
+          .read(cookOrdersProvider.notifier)
+          .reject(o.id, 'Refusee par la cuisiniere');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          content: Text('Erreur : $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _markReady(CookOrderModel o) async {
+    try {
+      await ref.read(cookOrdersProvider.notifier).markReady(o.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.forestGreen,
+          content: Text('Livreur notifie'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          content: Text('Erreur : $e'),
+        ),
+      );
+    }
+  }
+
+  // ── Mock fallback data ────────────────────────────────────────────────────
+
+  List<CookOrderModel> _mockPending() => [
+        CookOrderModel(
+          id: 'mock-1',
+          status: 'pending',
+          clientName: 'Jean M.',
+          items: const [
+            OrderItemModel(
+                menuItemName: 'Ndole a la viande (Solo)',
+                quantity: 1,
+                unitPriceXaf: 4500,
+                subtotalXaf: 4500),
+            OrderItemModel(
+                menuItemName: 'Miondo (Paquet de 5)',
+                quantity: 1,
+                unitPriceXaf: 3000,
+                subtotalXaf: 3000),
+          ],
+          totalXaf: 7500,
+          deliveryFeeXaf: 0,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 2)),
+        ),
+        CookOrderModel(
+          id: 'mock-2',
+          status: 'pending',
+          clientName: 'Aicha B.',
+          items: const [
+            OrderItemModel(
+                menuItemName: 'Poulet DG Royal',
+                quantity: 1,
+                unitPriceXaf: 5500,
+                subtotalXaf: 5500),
+          ],
+          totalXaf: 5500,
+          deliveryFeeXaf: 0,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
+        ),
+      ];
+
+  List<CookOrderModel> _mockPreparing() => [
+        CookOrderModel(
+          id: 'mock-10',
+          status: 'confirmed',
+          clientName: 'Marie L.',
+          items: const [
+            OrderItemModel(
+                menuItemName: 'Poisson Braise Kribi',
+                quantity: 1,
+                unitPriceXaf: 7000,
+                subtotalXaf: 7000),
+            OrderItemModel(
+                menuItemName: 'Miondo (Paquet de 5)',
+                quantity: 1,
+                unitPriceXaf: 2000,
+                subtotalXaf: 2000),
+          ],
+          totalXaf: 9000,
+          deliveryFeeXaf: 0,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 18)),
+          acceptedAt: DateTime.now().subtract(const Duration(minutes: 15)),
+        ),
+      ];
+
+  List<CookOrderModel> _mockReady() => [
+        CookOrderModel(
+          id: 'mock-20',
+          status: 'ready',
+          clientName: 'Paul K.',
+          items: const [
+            OrderItemModel(
+                menuItemName: 'Eru + Water Fufu',
+                quantity: 1,
+                unitPriceXaf: 6500,
+                subtotalXaf: 6500),
+          ],
+          totalXaf: 6500,
+          deliveryFeeXaf: 0,
+          createdAt: DateTime.now().subtract(const Duration(minutes: 30)),
+          acceptedAt: DateTime.now().subtract(const Duration(minutes: 25)),
+        ),
+      ];
 }
 
 // ── Header ───────────────────────────────────────────────────────────────────
@@ -391,7 +367,7 @@ class _SectionHeader extends StatelessWidget {
 
 // ── Carte NOUVELLE commande ─────────────────────────────────────────────────
 class _NewOrderCard extends StatelessWidget {
-  final _Order order;
+  final CookOrderModel order;
   final VoidCallback onAccept;
   final VoidCallback onReject;
   const _NewOrderCard(
@@ -434,7 +410,7 @@ class _NewOrderCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Text(
-                  'RÉCENT',
+                  'RECENT',
                   style: TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w800,
@@ -447,7 +423,7 @@ class _NewOrderCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${order.timeAgo} • ${order.clientName}',
+            '${order.timeAgo} - ${order.clientName}',
             style: const TextStyle(
               fontSize: 12,
               color: AppColors.textSecondary,
@@ -486,7 +462,7 @@ class _NewOrderCard extends StatelessWidget {
             (i) => Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Text(
-                i,
+                i.label,
                 style: const TextStyle(
                     fontSize: 14, color: AppColors.textPrimary),
               ),
@@ -544,12 +520,15 @@ class _NewOrderCard extends StatelessWidget {
 
 // ── Carte EN COURS ──────────────────────────────────────────────────────────
 class _PreparingCard extends StatelessWidget {
-  final _Order order;
+  final CookOrderModel order;
   final VoidCallback onReady;
   const _PreparingCard({required this.order, required this.onReady});
 
   @override
   Widget build(BuildContext context) {
+    final readyIn = order.acceptedAt != null
+        ? (15 - order.minutesSinceAccepted).clamp(0, 60)
+        : 15;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -578,7 +557,7 @@ class _PreparingCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                'PRÊT DANS ${order.readyInMin ?? 15} MIN',
+                'PRET DANS $readyIn MIN',
                 style: const TextStyle(
                   color: AppColors.primary,
                   fontWeight: FontWeight.w800,
@@ -590,7 +569,7 @@ class _PreparingCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${order.timeAgo} • ${order.clientName}',
+            '${order.timeAgo} - ${order.clientName}',
             style: const TextStyle(
                 fontSize: 12, color: AppColors.textSecondary),
           ),
@@ -608,7 +587,7 @@ class _PreparingCard extends StatelessWidget {
           ...order.items.map(
             (i) => Padding(
               padding: const EdgeInsets.only(bottom: 2),
-              child: Text(i,
+              child: Text(i.label,
                   style: const TextStyle(
                       fontSize: 14, color: AppColors.textPrimary)),
             ),
@@ -626,7 +605,7 @@ class _PreparingCard extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text('DÉTAILS',
+              child: const Text('DETAILS',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
             ),
           ),
@@ -651,7 +630,7 @@ class _PreparingCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12)),
                 ),
                 child: const Text(
-                  "C'EST PRÊT !",
+                  "C'EST PRET !",
                   style: TextStyle(
                       fontSize: 16, fontWeight: FontWeight.w900),
                 ),
@@ -664,9 +643,9 @@ class _PreparingCard extends StatelessWidget {
   }
 }
 
-// ── Carte PRÊTE ─────────────────────────────────────────────────────────────
+// ── Carte PRETE ─────────────────────────────────────────────────────────────
 class _ReadyCard extends StatelessWidget {
-  final _Order order;
+  final CookOrderModel order;
   const _ReadyCard({required this.order});
 
   @override
@@ -707,9 +686,9 @@ class _ReadyCard extends StatelessWidget {
                         fontSize: 14,
                         color: AppColors.primary)),
                 const SizedBox(height: 2),
-                Text(
-                  'Attente livreur • ${order.courierName ?? 'Assigné'}',
-                  style: const TextStyle(
+                const Text(
+                  'Attente livreur',
+                  style: TextStyle(
                       fontSize: 13, color: AppColors.textSecondary),
                 ),
               ],
@@ -781,7 +760,7 @@ class _EmptyState extends StatelessWidget {
               SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Les plats publiés avant 11h reçoivent 3x plus de commandes le midi.',
+                  'Les plats publies avant 11h recoivent 3x plus de commandes le midi.',
                   style: TextStyle(
                       fontSize: 13, color: AppColors.textPrimary, height: 1.4),
                 ),
@@ -792,7 +771,7 @@ class _EmptyState extends StatelessWidget {
         const SizedBox(height: 16),
         OutlinedButton(
           onPressed: () => context.go('/menu'),
-          child: const Text('Mettre à jour mon menu →'),
+          child: const Text('Mettre a jour mon menu'),
         ),
       ],
     );
@@ -821,7 +800,7 @@ void _openNotificationsSheet(BuildContext context) {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Tu seras prévenue dès qu\'une commande arrive',
+            'Tu seras prevenue des qu\'une commande arrive',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 14, color: AppColors.textSecondary),

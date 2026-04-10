@@ -1,42 +1,92 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../orders/providers/orders_provider.dart';
 
-class RevenueScreen extends StatefulWidget {
+// ── Revenue data provider ───────────────────────────────────────────────────
+
+class _RevenueData {
+  final int totalXaf;
+  final int orderCount;
+  final List<_TopDish> topDishes;
+
+  const _RevenueData({
+    required this.totalXaf,
+    required this.orderCount,
+    required this.topDishes,
+  });
+}
+
+final _revenueProvider = FutureProvider<_RevenueData>((ref) async {
+  final repo = ref.read(ordersRepositoryProvider);
+  try {
+    final orders = await repo.getCookOrders(status: 'delivered');
+    if (orders.isEmpty) throw Exception('empty');
+
+    final total = orders.fold<int>(0, (s, o) => s + o.totalXaf);
+
+    // Aggregate top dishes
+    final dishMap = <String, _TopDishAgg>{};
+    for (final order in orders) {
+      for (final item in order.items) {
+        final entry = dishMap.putIfAbsent(
+          item.menuItemName,
+          () => _TopDishAgg(item.menuItemName),
+        );
+        entry.portions += item.quantity;
+        entry.totalXaf += item.subtotalXaf;
+      }
+    }
+    final sorted = dishMap.values.toList()
+      ..sort((a, b) => b.totalXaf.compareTo(a.totalXaf));
+    final medals = ['🥇', '🥈', '🥉'];
+    final topDishes = sorted.take(3).toList().asMap().entries.map((e) {
+      return _TopDish(
+        medal: medals[e.key],
+        name: e.value.name,
+        portions: e.value.portions,
+        totalXaf: e.value.totalXaf,
+      );
+    }).toList();
+
+    return _RevenueData(
+      totalXaf: total,
+      orderCount: orders.length,
+      topDishes: topDishes,
+    );
+  } catch (_) {
+    // Fallback mock
+    return const _RevenueData(
+      totalXaf: 147500,
+      orderCount: 42,
+      topDishes: [
+        _TopDish(medal: '🥇', name: 'Ndole Traditionnel', portions: 18, totalXaf: 81000),
+        _TopDish(medal: '🥈', name: 'Poulet DG Royal', portions: 12, totalXaf: 66000),
+        _TopDish(medal: '🥉', name: 'Poisson Braise Kribi', portions: 9, totalXaf: 63000),
+      ],
+    );
+  }
+});
+
+class _TopDishAgg {
+  final String name;
+  int portions = 0;
+  int totalXaf = 0;
+  _TopDishAgg(this.name);
+}
+
+class RevenueScreen extends ConsumerStatefulWidget {
   const RevenueScreen({super.key});
 
   @override
-  State<RevenueScreen> createState() => _RevenueScreenState();
+  ConsumerState<RevenueScreen> createState() => _RevenueScreenState();
 }
 
-class _RevenueScreenState extends State<RevenueScreen> {
+class _RevenueScreenState extends ConsumerState<RevenueScreen> {
   String _period = 'Aujourd\'hui';
   final _periods = const ['Aujourd\'hui', 'Cette semaine', 'Ce mois'];
 
-  final _topDishes = const [
-    _TopDish(
-      medal: '🥇',
-      name: 'Ndolé Traditionnel',
-      portions: 18,
-      totalXaf: 81000,
-      image: 'assets/images/mock/ndole.jpg',
-    ),
-    _TopDish(
-      medal: '🥈',
-      name: 'Poulet DG Royal',
-      portions: 12,
-      totalXaf: 66000,
-      image: 'assets/images/mock/poulet_yassa.jpg',
-    ),
-    _TopDish(
-      medal: '🥉',
-      name: 'Poisson Braisé Kribi',
-      portions: 9,
-      totalXaf: 63000,
-      image: 'assets/images/mock/poisson_braise.jpg',
-    ),
-  ];
-
-  void _openTransferSheet(BuildContext context) {
+  void _openTransferSheet(BuildContext context, int balance) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -45,165 +95,194 @@ class _RevenueScreenState extends State<RevenueScreen> {
         borderRadius:
             BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => const _TransferMomoSheet(balance: 147500),
+      builder: (ctx) => _TransferMomoSheet(balance: balance),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final revenueAsync = ref.watch(_revenueProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-          children: [
-            const Text(
-              'Mes Revenus',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 40,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: _periods.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (ctx, i) {
-                  final p = _periods[i];
-                  final active = p == _period;
-                  return GestureDetector(
-                    onTap: () => setState(() => _period = p),
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 16),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: active
-                            ? AppColors.primary
-                            : AppColors.cardBg,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: active
-                                ? AppColors.primary
-                                : AppColors.divider),
-                      ),
-                      child: Text(
-                        p,
-                        style: TextStyle(
-                          color: active
-                              ? Colors.white
-                              : AppColors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 20),
-            // ── Card principale ────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AppColors.forestGreen, Color(0xFF2D6B4F)],
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'SOLDE TOTAL',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.8),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '147 500 FCFA',
-                    style: TextStyle(
-                      fontFamily: 'SpaceMono',
-                      fontSize: 36,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.trending_up,
-                          color: Color(0xFF9FE8B8), size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        '+12% par rapport à hier',
-                        style: TextStyle(
-                          color: const Color(0xFF9FE8B8),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: ElevatedButton(
-                      onPressed: () => _openTransferSheet(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            Colors.white.withValues(alpha: 0.2),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        textStyle: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w700),
-                      ),
-                      child: const Text('Transférer vers MoMo'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            // ── Stats ──────────────────────────────────────────────────────
-            Row(
-              children: const [
-                Expanded(
-                    child: _StatCard(label: 'Commandes', value: '42')),
-                SizedBox(width: 12),
-                Expanded(child: _StatCard(label: 'Clients', value: '38')),
+        child: revenueAsync.when(
+          loading: () => const Center(
+              child: CircularProgressIndicator(color: AppColors.primary)),
+          error: (_, __) => _buildContent(
+            const _RevenueData(
+              totalXaf: 147500,
+              orderCount: 42,
+              topDishes: [
+                _TopDish(medal: '🥇', name: 'Ndole Traditionnel', portions: 18, totalXaf: 81000),
+                _TopDish(medal: '🥈', name: 'Poulet DG Royal', portions: 12, totalXaf: 66000),
+                _TopDish(medal: '🥉', name: 'Poisson Braise Kribi', portions: 9, totalXaf: 63000),
               ],
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Top 3 Plats Vendus',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ..._topDishes.map((d) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _TopDishCard(dish: d),
-                )),
-          ],
+          ),
+          data: _buildContent,
         ),
+      ),
+    );
+  }
+
+  Widget _buildContent(_RevenueData data) {
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async => ref.invalidate(_revenueProvider),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        children: [
+          const Text(
+            'Mes Revenus',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 40,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _periods.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (ctx, i) {
+                final p = _periods[i];
+                final active = p == _period;
+                return GestureDetector(
+                  onTap: () => setState(() => _period = p),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: active
+                          ? AppColors.primary
+                          : AppColors.cardBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: active
+                              ? AppColors.primary
+                              : AppColors.divider),
+                    ),
+                    child: Text(
+                      p,
+                      style: TextStyle(
+                        color: active
+                            ? Colors.white
+                            : AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+          // ── Card principale ────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppColors.forestGreen, Color(0xFF2D6B4F)],
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'SOLDE TOTAL',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${_fmt(data.totalXaf)} FCFA',
+                  style: const TextStyle(
+                    fontFamily: 'SpaceMono',
+                    fontSize: 36,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.trending_up,
+                        color: Color(0xFF9FE8B8), size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      '+12% par rapport a hier',
+                      style: TextStyle(
+                        color: const Color(0xFF9FE8B8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton(
+                    onPressed: () =>
+                        _openTransferSheet(context, data.totalXaf),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          Colors.white.withValues(alpha: 0.2),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      textStyle: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                    child: const Text('Transferer vers MoMo'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // ── Stats ──────────────────────────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                  child: _StatCard(
+                      label: 'Commandes', value: '${data.orderCount}')),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: _StatCard(
+                      label: 'Clients', value: '${data.orderCount}')),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Top 3 Plats Vendus',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...data.topDishes.map((d) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _TopDishCard(dish: d),
+              )),
+        ],
       ),
     );
   }
@@ -251,13 +330,11 @@ class _TopDish {
   final String name;
   final int portions;
   final int totalXaf;
-  final String image;
   const _TopDish({
     required this.medal,
     required this.name,
     required this.portions,
     required this.totalXaf,
-    required this.image,
   });
 }
 
@@ -281,39 +358,20 @@ class _TopDishCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              ClipOval(
-                child: Image.asset(
-                  dish.image,
-                  width: 48,
-                  height: 48,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          AppColors.primary.withValues(alpha: 0.6),
-                          AppColors.primaryLight,
-                        ],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary.withValues(alpha: 0.6),
+                  AppColors.primaryLight,
+                ],
               ),
-              Positioned(
-                right: -2,
-                bottom: -2,
-                child: Text(
-                  dish.medal,
-                  style: const TextStyle(fontSize: 20),
-                ),
-              ),
-            ],
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(dish.medal, style: const TextStyle(fontSize: 20)),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -391,6 +449,7 @@ class _TransferMomoSheetState extends State<_TransferMomoSheet> {
       return;
     }
     setState(() => _loading = true);
+    // Mock — NotchPay sera branche plus tard
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -398,7 +457,7 @@ class _TransferMomoSheetState extends State<_TransferMomoSheet> {
       SnackBar(
         backgroundColor: AppColors.success,
         content: Text(
-            'Transfert de ${_fmt(amount)} FCFA initié vers MoMo !'),
+            'Transfert de ${_fmt(amount)} FCFA initie vers MoMo !'),
       ),
     );
   }
@@ -424,7 +483,7 @@ class _TransferMomoSheetState extends State<_TransferMomoSheet> {
           ),
           const SizedBox(height: 16),
           const Text(
-            'Transférer mes gains',
+            'Transferer mes gains',
             style: TextStyle(
                 fontSize: 20, fontWeight: FontWeight.w800),
           ),
@@ -443,12 +502,12 @@ class _TransferMomoSheetState extends State<_TransferMomoSheet> {
             controller: _amountCtrl,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Montant à transférer (FCFA)',
+              labelText: 'Montant a transferer (FCFA)',
               border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 16),
-          const Text('Méthode de paiement',
+          const Text('Methode de paiement',
               style: TextStyle(
                   fontWeight: FontWeight.w700, fontSize: 14)),
           const SizedBox(height: 8),
@@ -478,7 +537,7 @@ class _TransferMomoSheetState extends State<_TransferMomoSheet> {
             controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
             decoration: const InputDecoration(
-              labelText: 'Numéro de téléphone',
+              labelText: 'Numero de telephone',
               border: OutlineInputBorder(),
             ),
           ),
@@ -510,7 +569,7 @@ class _TransferMomoSheetState extends State<_TransferMomoSheet> {
           ),
           const SizedBox(height: 10),
           const Text(
-            'Les transferts sont instantanés vers votre numéro enregistré. Des frais d\'opérateur peuvent s\'appliquer.',
+            'Les transferts sont instantanes vers votre numero enregistre. Des frais d\'operateur peuvent s\'appliquer.',
             style: TextStyle(
                 fontSize: 11, color: AppColors.textSecondary),
           ),

@@ -9,7 +9,7 @@ class ReviewEntry {
   final String itemsSummary;
   final double cookRating;
   final String? comment;
-  final DateTime reviewDate;
+  final DateTime? reviewDate;
 
   const ReviewEntry({
     required this.orderId,
@@ -17,7 +17,7 @@ class ReviewEntry {
     required this.itemsSummary,
     required this.cookRating,
     this.comment,
-    required this.reviewDate,
+    this.reviewDate,
   });
 }
 
@@ -38,7 +38,8 @@ final cookReviewsProvider = FutureProvider<List<ReviewEntry>>((ref) async {
           ))
       .toList();
 
-  entries.sort((a, b) => b.reviewDate.compareTo(a.reviewDate));
+  entries.sort((a, b) => (b.reviewDate ?? DateTime.now())
+      .compareTo(a.reviewDate ?? DateTime.now()));
   return entries;
 });
 
