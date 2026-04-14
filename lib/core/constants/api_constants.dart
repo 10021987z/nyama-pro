@@ -10,6 +10,7 @@ class ApiConstants {
   // ── Auth ──────────────────────────────────────────────────────────────────
   static const String requestOtp = '/auth/otp/request';
   static const String verifyOtp = '/auth/otp/verify';
+  static const String accessCodeLogin = '/auth/access-code';
   static const String refreshToken = '/auth/refresh';
   static const String logout = '/auth/logout';
 

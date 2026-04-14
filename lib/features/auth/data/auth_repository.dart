@@ -108,6 +108,40 @@ class AuthRepository {
     }
   }
 
+  Future<AuthResult> loginWithAccessCode(String phone, String accessCode) async {
+    try {
+      final response = await _client.post(
+        ApiConstants.accessCodeLogin,
+        data: {'phone': phone, 'accessCode': accessCode.toUpperCase()},
+      );
+      final data = response.data as Map<String, dynamic>;
+      final accessToken = data['accessToken'] as String;
+      final refreshToken = data['refreshToken'] as String;
+      final userJson = data['user'] as Map<String, dynamic>?;
+      final user = userJson != null ? CookUser.fromJson(userJson) : null;
+
+      if (user != null && !user.isCook) {
+        throw const NotCookException();
+      }
+
+      await SecureStorage.saveAccessToken(accessToken);
+      await SecureStorage.saveRefreshToken(refreshToken);
+      if (user != null) {
+        await SecureStorage.saveUserPhone(user.phone);
+        await SecureStorage.saveUserId(user.id);
+        if (user.cookId != null) {
+          await SecureStorage.saveCookId(user.cookId!);
+        }
+      }
+      return AuthResult(
+          accessToken: accessToken, refreshToken: refreshToken, user: user);
+    } on NotCookException {
+      rethrow;
+    } on DioException catch (e) {
+      throw ApiExceptionHandler.handle(e);
+    }
+  }
+
   Future<void> logout() async {
     try {
       await _client.post(ApiConstants.logout);

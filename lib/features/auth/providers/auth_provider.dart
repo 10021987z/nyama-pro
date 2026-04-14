@@ -113,6 +113,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  Future<void> loginWithAccessCode(String phone, String accessCode) async {
+    state = AuthState(status: AuthStatus.verifying, phone: phone);
+    try {
+      final result = await _repo.loginWithAccessCode(phone, accessCode);
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.authenticated,
+        user: result.user ?? CookUser(id: '', phone: phone),
+        phone: phone,
+      );
+    } on NotCookException catch (e) {
+      if (!mounted) return;
+      await _repo.logout();
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.wrongRole,
+        phone: phone,
+        errorMessage: e.toString(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      state = AuthState(
+        status: AuthStatus.error,
+        phone: phone,
+        errorMessage: _parseError(e),
+      );
+    }
+  }
+
   Future<void> resendOtp() async {
     final phone = state.phone;
     if (phone == null) return;
