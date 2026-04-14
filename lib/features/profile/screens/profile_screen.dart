@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/l10n/translations.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../auth/providers/auth_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -16,7 +18,6 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   File? _avatarFile;
-  String _lang = 'Français';
 
   Future<void> _pickAvatar() async {
     final source = await showModalBottomSheet<ImageSource>(
@@ -81,21 +82,53 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   void _pickLang() {
+    final current = ref.read(languageProvider);
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
         title: const Text('Choisir la langue'),
-        children: ['Français', 'Pidgin']
-            .map((l) => SimpleDialogOption(
-                  onPressed: () {
-                    setState(() => _lang = l);
-                    Navigator.pop(ctx);
+        children: const [
+          ['fr', 'Français'],
+          ['en', 'English'],
+          ['pidgin', 'Pidgin'],
+        ]
+            .map((p) => SimpleDialogOption(
+                  onPressed: () async {
+                    ref.read(languageProvider.notifier).state = p[0];
+                    await SecureStorage.saveLanguage(p[0]);
+                    if (ctx.mounted) Navigator.pop(ctx);
                   },
-                  child: Text(l),
+                  child: Row(
+                    children: [
+                      if (current == p[0])
+                        const Icon(Icons.check,
+                            size: 18, color: AppColors.primary),
+                      if (current == p[0]) const SizedBox(width: 8),
+                      Text(p[1]),
+                    ],
+                  ),
                 ))
             .toList(),
       ),
     );
+  }
+
+  String _langLabel(String code) {
+    switch (code) {
+      case 'en':
+        return 'English';
+      case 'pidgin':
+        return 'Pidgin';
+      default:
+        return 'Français';
+    }
+  }
+
+  Future<void> _openCgu() async {
+    final uri = Uri.parse('https://nyama-web.vercel.app/cgu');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   Future<void> _openWhatsApp() async {
@@ -395,11 +428,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
                 const SizedBox(height: 8),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: () => context.push('/profile/restaurant'),
                   style: TextButton.styleFrom(
                       padding: EdgeInsets.zero,
                       alignment: Alignment.centerLeft),
-                  child: const Text('Voir ma carte publique →',
+                  child: const Text('Modifier mon restaurant →',
                       style: TextStyle(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w700)),
@@ -418,21 +451,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               const Divider(height: 1),
               _MenuTile(
                 icon: Icons.language,
-                label: 'Langue',
-                trailing: _lang,
+                label: t('language', ref),
+                trailing: _langLabel(ref.watch(languageProvider)),
                 onTap: _pickLang,
               ),
               const Divider(height: 1),
               _MenuTile(
                 icon: Icons.help_outline,
-                label: 'Aide & Support',
+                label: t('support', ref),
                 onTap: _openWhatsApp,
               ),
               const Divider(height: 1),
               _MenuTile(
                 icon: Icons.description_outlined,
-                label: 'Conditions d\'utilisation',
-                onTap: () {},
+                label: t('tos', ref),
+                onTap: _openCgu,
               ),
             ]),
             const SizedBox(height: 20),
@@ -450,8 +483,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                 ),
-                child: const Text('Se déconnecter',
-                    style: TextStyle(
+                child: Text(t('logout', ref),
+                    style: const TextStyle(
                         fontSize: 15, fontWeight: FontWeight.w800)),
               ),
             ),

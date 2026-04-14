@@ -44,6 +44,12 @@ class SecureStorage {
   static Future<String?> getCookId() =>
       _storage.read(key: ApiConstants.cookIdKey);
 
+  // ── Language ──────────────────────────────────────────────────────────────
+  static Future<void> saveLanguage(String lang) =>
+      _storage.write(key: 'app_language', value: lang);
+
+  static Future<String?> getLanguage() => _storage.read(key: 'app_language');
+
   // ── FCM Token ─────────────────────────────────────────────────────────────
   static Future<void> saveFcmToken(String token) =>
       _storage.write(key: 'fcm_token', value: token);
