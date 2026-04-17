@@ -44,6 +44,16 @@ class SecureStorage {
   static Future<String?> getCookId() =>
       _storage.read(key: ApiConstants.cookIdKey);
 
+  // ── Avatar URL (relative path) ────────────────────────────────────────────
+  static Future<void> saveAvatarUrl(String url) =>
+      _storage.write(key: ApiConstants.avatarUrlKey, value: url);
+
+  static Future<String?> getAvatarUrl() =>
+      _storage.read(key: ApiConstants.avatarUrlKey);
+
+  static Future<void> clearAvatarUrl() =>
+      _storage.delete(key: ApiConstants.avatarUrlKey);
+
   // ── Language ──────────────────────────────────────────────────────────────
   static Future<void> saveLanguage(String lang) =>
       _storage.write(key: 'app_language', value: lang);

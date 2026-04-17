@@ -18,6 +18,11 @@ import 'features/orders/data/models/cook_order_model.dart';
 import 'features/reviews/screens/reviews_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
 import 'features/profile/screens/restaurant_presentation_screen.dart';
+import 'features/profile/screens/help_support_screen.dart';
+import 'features/profile/screens/faq_screen.dart';
+import 'features/profile/screens/cgu_screen.dart';
+import 'features/profile/screens/privacy_screen.dart';
+import 'features/profile/screens/about_screen.dart';
 import 'shared/widgets/pro_bottom_nav_bar.dart';
 
 class App extends StatelessWidget {
@@ -94,6 +99,26 @@ class App extends StatelessWidget {
       GoRoute(
         path: '/profile/restaurant',
         builder: (context, state) => const RestaurantPresentationScreen(),
+      ),
+      GoRoute(
+        path: '/profile/support',
+        builder: (context, state) => const HelpSupportScreen(),
+      ),
+      GoRoute(
+        path: '/profile/faq',
+        builder: (context, state) => const FaqScreen(),
+      ),
+      GoRoute(
+        path: '/profile/cgu',
+        builder: (context, state) => const CguScreen(),
+      ),
+      GoRoute(
+        path: '/profile/privacy',
+        builder: (context, state) => const PrivacyScreen(),
+      ),
+      GoRoute(
+        path: '/profile/about',
+        builder: (context, state) => const AboutScreen(),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

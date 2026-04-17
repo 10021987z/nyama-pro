@@ -124,17 +124,25 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     }
   }
 
-  // ── Mark ready (chains startPreparing → markReady) ────────────────────────
+  // ── Mark ready (chain startPreparing → markReady only if needed) ──────────
 
   Future<void> markReady(String orderId) async {
     try {
-      // Chain: startPreparing → markReady
-      await _repo.startPreparing(orderId);
-      if (!mounted) return;
-      _moveOrder(
-          orderId,
-          _findOrder(orderId)?.copyWith(status: 'preparing') ??
-              _buildFallback(orderId, 'preparing'));
+      final current = _findOrder(orderId);
+      final backendStatus = current?.status.toLowerCase() ?? '';
+      // Backend transitions: CONFIRMED → PREPARING → READY.
+      // Seules les commandes CONFIRMED ont besoin de /preparing avant /ready.
+      final needsStartPreparing =
+          backendStatus == 'confirmed' || backendStatus == 'pending';
+
+      if (needsStartPreparing) {
+        await _repo.startPreparing(orderId);
+        if (!mounted) return;
+        _moveOrder(
+            orderId,
+            _findOrder(orderId)?.copyWith(status: 'preparing') ??
+                _buildFallback(orderId, 'preparing'));
+      }
 
       await _repo.markReady(orderId);
       if (!mounted) return;

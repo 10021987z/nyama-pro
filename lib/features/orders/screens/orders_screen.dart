@@ -201,7 +201,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Erreur : $e'),
+          duration: const Duration(seconds: 6),
+          content: Text('Erreur : ${e.toString()}'),
         ),
       );
     }
@@ -235,7 +236,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Erreur : $e'),
+          duration: const Duration(seconds: 6),
+          content: Text('Erreur : ${e.toString()}'),
         ),
       );
     }
@@ -257,7 +259,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Erreur : $e'),
+          duration: const Duration(seconds: 6),
+          content: Text('Erreur : ${e.toString()}'),
         ),
       );
     }

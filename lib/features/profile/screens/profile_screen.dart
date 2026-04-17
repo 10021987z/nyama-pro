@@ -1,13 +1,15 @@
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/l10n/translations.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../providers/user_profile_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -17,7 +19,7 @@ class ProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  File? _avatarFile;
+  File? _localPreview;
 
   Future<void> _pickAvatar() async {
     final source = await showModalBottomSheet<ImageSource>(
@@ -43,9 +45,38 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ),
     );
     if (source == null) return;
-    final picked = await ImagePicker().pickImage(source: source);
-    if (picked != null && mounted) {
-      setState(() => _avatarFile = File(picked.path));
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+    );
+    if (picked == null || !mounted) return;
+
+    final file = File(picked.path);
+    // Aperçu immédiat pendant l'upload
+    setState(() => _localPreview = file);
+
+    try {
+      await ref.read(userProfileProvider.notifier).uploadAvatar(file);
+      if (!mounted) return;
+      setState(() => _localPreview = null); // on repasse sur l'URL backend
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.forestGreen,
+          content: Text('Photo de profil mise à jour'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _localPreview = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 6),
+          content: Text('Échec upload : $e'),
+        ),
+      );
     }
   }
 
@@ -124,18 +155,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
-  Future<void> _openCgu() async {
-    final uri = Uri.parse('https://nyama-web.vercel.app/cgu');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
+  void _openSupport() => context.push('/profile/support');
+  void _openCgu() => context.push('/profile/cgu');
+  void _openAbout() => context.push('/profile/about');
 
-  Future<void> _openWhatsApp() async {
-    final uri = Uri.parse('https://wa.me/237699000000');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  Widget _buildAvatar() {
+    if (_localPreview != null) {
+      return Image.file(_localPreview!, fit: BoxFit.cover);
     }
+    final remote = ref.watch(userProfileProvider).avatarUrl;
+    if (remote != null && remote.isNotEmpty) {
+      return CachedNetworkImage(
+        imageUrl: ApiConstants.absoluteUrl(remote),
+        fit: BoxFit.cover,
+        placeholder: (_, __) => Container(color: AppColors.surface),
+        errorWidget: (_, __, ___) => Image.asset(
+          'assets/images/mock/logo_nyama.jpg',
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    return Image.asset(
+      'assets/images/mock/logo_nyama.jpg',
+      fit: BoxFit.cover,
+    );
   }
 
   Future<void> _confirmLogout() async {
@@ -160,6 +203,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ),
     );
     if (confirm == true && mounted) {
+      await ref.read(userProfileProvider.notifier).clearOnLogout();
       await ref.read(authStateProvider.notifier).logout();
       if (mounted) context.go('/login');
     }
@@ -208,15 +252,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 color: AppColors.primary, width: 2),
                           ),
                           child: ClipOval(
-                            child: _avatarFile != null
-                                ? Image.file(_avatarFile!,
-                                    fit: BoxFit.cover)
-                                : Image.asset(
-                                    'assets/images/mock/logo_nyama.jpg',
-                                    fit: BoxFit.cover,
-                                  ),
+                            child: _buildAvatar(),
                           ),
                         ),
+                        if (ref.watch(userProfileProvider).isUploading)
+                          const Positioned.fill(
+                            child: ClipOval(
+                              child: ColoredBox(
+                                color: Color(0x66000000),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      valueColor:
+                                          AlwaysStoppedAnimation<Color>(
+                                              Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                         Positioned(
                           bottom: -6,
                           left: 0,
@@ -459,13 +517,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               _MenuTile(
                 icon: Icons.help_outline,
                 label: t('support', ref),
-                onTap: _openWhatsApp,
+                onTap: _openSupport,
               ),
               const Divider(height: 1),
               _MenuTile(
                 icon: Icons.description_outlined,
                 label: t('tos', ref),
                 onTap: _openCgu,
+              ),
+              const Divider(height: 1),
+              _MenuTile(
+                icon: Icons.info_outline,
+                label: 'À propos',
+                onTap: _openAbout,
               ),
             ]),
             const SizedBox(height: 20),

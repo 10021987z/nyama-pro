@@ -3,11 +3,13 @@ import 'package:dio/dio.dart';
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
+  final dynamic raw;
 
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(this.message, {this.statusCode, this.raw});
 
   @override
-  String toString() => message;
+  String toString() =>
+      statusCode != null ? '[$statusCode] $message' : message;
 }
 
 class ApiExceptionHandler {
@@ -26,15 +28,29 @@ class ApiExceptionHandler {
       case DioExceptionType.cancel:
         return const ApiException('Requête annulée.');
       default:
-        return ApiException(e.message ?? 'Erreur inconnue.');
+        return ApiException(
+          e.message ?? 'Erreur réseau inconnue (${e.type.name})',
+        );
     }
   }
 
   static Exception _handleResponse(Response? response) {
     if (response == null) return const ApiException('Réponse vide du serveur.');
     final data = response.data;
-    final msg = (data is Map ? data['message'] : null) as String? ??
-        'Erreur ${response.statusCode}';
-    return ApiException(msg, statusCode: response.statusCode);
+    String? apiMsg;
+    if (data is Map) {
+      final raw = data['message'];
+      if (raw is String) {
+        apiMsg = raw;
+      } else if (raw is List) {
+        apiMsg = raw.whereType<String>().join(' · ');
+      } else if (data['error'] is String) {
+        apiMsg = data['error'] as String;
+      }
+    } else if (data is String && data.isNotEmpty) {
+      apiMsg = data;
+    }
+    final msg = apiMsg ?? 'Erreur ${response.statusCode}';
+    return ApiException(msg, statusCode: response.statusCode, raw: data);
   }
 }

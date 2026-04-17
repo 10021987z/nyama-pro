@@ -1,7 +1,14 @@
 class ApiConstants {
   ApiConstants._();
 
-  static const String baseUrl = 'https://nyama-api-production.up.railway.app/api/v1';
+  static const String serverHost =
+      'https://nyama-api-production.up.railway.app';
+  static const String baseUrl = '$serverHost/api/v1';
+
+  /// Prefix ROOT pour composer une URL absolue d'avatar à partir du chemin
+  /// relatif retourné par l'API (ex. `/api/v1/uploads/avatars/abc.jpg`).
+  static String absoluteUrl(String path) =>
+      path.startsWith('http') ? path : '$serverHost$path';
 
   static const Duration connectTimeout = Duration(seconds: 10);
   static const Duration receiveTimeout = Duration(seconds: 30);
@@ -18,6 +25,10 @@ class ApiConstants {
   static const String cookProfile = '/cook/profile';
   static const String cookStats = '/cook/stats';
   static const String cookRevenue = '/cook/revenue';
+
+  // ── Utilisateur courant ───────────────────────────────────────────────────
+  static const String me = '/users/me';
+  static const String meAvatar = '/users/me/avatar';
 
   // ── Menu items ────────────────────────────────────────────────────────────
   static const String cookMenuItems = '/cook/menu/items';
@@ -52,4 +63,5 @@ class ApiConstants {
   static const String userPhoneKey = 'user_phone';
   static const String userIdKey = 'user_id';
   static const String cookIdKey = 'cook_id';
+  static const String avatarUrlKey = 'avatar_url';
 }
