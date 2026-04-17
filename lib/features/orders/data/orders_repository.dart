@@ -7,13 +7,21 @@ import 'models/cook_order_model.dart';
 class OrdersRepository {
   final _client = ApiClient.instance;
 
+  /// Récupère TOUTES les commandes actives de la cuisinière :
+  /// PENDING, CONFIRMED, PREPARING, READY, ASSIGNED, PICKED_UP.
+  /// Sans paramètre `status`, le backend renvoie toutes les commandes actives.
   Future<List<CookOrderModel>> getCookOrders({
     String? status,
     String? date,
   }) async {
     try {
       final params = <String, dynamic>{};
-      if (status != null) params['status'] = status;
+      if (status != null) {
+        params['status'] = status;
+      } else {
+        // Demande explicite de toutes les commandes actives
+        params['scope'] = 'active';
+      }
       if (date != null) params['date'] = date;
 
       final response = await _client.get(

@@ -8,6 +8,7 @@ class CookOrdersState {
   final List<CookOrderModel> pending;
   final List<CookOrderModel> preparing;
   final List<CookOrderModel> ready;
+  final List<CookOrderModel> delivering;
   final bool isLoading;
   final String? error;
 
@@ -15,6 +16,7 @@ class CookOrdersState {
     this.pending = const [],
     this.preparing = const [],
     this.ready = const [],
+    this.delivering = const [],
     this.isLoading = false,
     this.error,
   });
@@ -23,6 +25,7 @@ class CookOrdersState {
     List<CookOrderModel>? pending,
     List<CookOrderModel>? preparing,
     List<CookOrderModel>? ready,
+    List<CookOrderModel>? delivering,
     bool? isLoading,
     String? error,
   }) =>
@@ -30,12 +33,19 @@ class CookOrdersState {
         pending: pending ?? this.pending,
         preparing: preparing ?? this.preparing,
         ready: ready ?? this.ready,
+        delivering: delivering ?? this.delivering,
         isLoading: isLoading ?? this.isLoading,
         error: error,
       );
 
   int get pendingCount => pending.length;
-  bool get isEmpty => pending.isEmpty && preparing.isEmpty && ready.isEmpty;
+  int get totalActive =>
+      pending.length + preparing.length + ready.length + delivering.length;
+  bool get isEmpty =>
+      pending.isEmpty &&
+      preparing.isEmpty &&
+      ready.isEmpty &&
+      delivering.isEmpty;
 }
 
 // ─── Notifier ─────────────────────────────────────────────────────────────────
@@ -68,6 +78,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     final pending = <CookOrderModel>[];
     final preparing = <CookOrderModel>[];
     final ready = <CookOrderModel>[];
+    final delivering = <CookOrderModel>[];
 
     for (final o in orders) {
       if (o.isPending) {
@@ -76,16 +87,23 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
         preparing.add(o);
       } else if (o.isReady) {
         ready.add(o);
+      } else if (o.isDelivering) {
+        delivering.add(o);
       }
     }
 
-    // Sort pending by newest first (FIFO reversed so newest is top)
+    // Nouvelles commandes : plus récentes en haut
     pending.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    // En préparation : plus ancienne d'abord (urgence)
+    preparing.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    ready.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    delivering.sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     state = CookOrdersState(
       pending: pending,
       preparing: preparing,
       ready: ready,
+      delivering: delivering,
       isLoading: false,
     );
   }
@@ -113,15 +131,17 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       // Chain: startPreparing → markReady
       await _repo.startPreparing(orderId);
       if (!mounted) return;
-      // Briefly update to preparing
-      _moveOrder(orderId,
+      _moveOrder(
+          orderId,
           _findOrder(orderId)?.copyWith(status: 'preparing') ??
               _buildFallback(orderId, 'preparing'));
 
       await _repo.markReady(orderId);
       if (!mounted) return;
-      _moveOrder(orderId,
-          _findOrder(orderId)?.copyWith(status: 'ready') ??
+      _moveOrder(
+          orderId,
+          _findOrder(orderId)
+                  ?.copyWith(status: 'ready', readyAt: DateTime.now()) ??
               _buildFallback(orderId, 'ready'));
     } catch (e) {
       if (!mounted) return;
@@ -148,9 +168,10 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
 
   void addOrder(CookOrderModel order) {
     if (!mounted) return;
-    // Avoid duplicates
     final exists = state.pending.any((o) => o.id == order.id) ||
-        state.preparing.any((o) => o.id == order.id);
+        state.preparing.any((o) => o.id == order.id) ||
+        state.ready.any((o) => o.id == order.id) ||
+        state.delivering.any((o) => o.id == order.id);
     if (exists) return;
 
     state = state.copyWith(
@@ -171,15 +192,24 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       acceptedAt: status == 'preparing' && order.acceptedAt == null
           ? DateTime.now()
           : order.acceptedAt,
+      readyAt:
+          status == 'ready' && order.readyAt == null ? DateTime.now() : null,
+      assignedAt: status == 'assigned' && order.assignedAt == null
+          ? DateTime.now()
+          : null,
+      pickedUpAt:
+          (status == 'picked_up' || status == 'delivering') &&
+                  order.pickedUpAt == null
+              ? DateTime.now()
+              : null,
     );
 
-    if (status == 'delivering' || status == 'delivered' ||
-        status == 'cancelled') {
-      // Remove from all sections
+    if (status == 'delivered' || status == 'cancelled') {
       state = state.copyWith(
         pending: state.pending.where((o) => o.id != orderId).toList(),
         preparing: state.preparing.where((o) => o.id != orderId).toList(),
         ready: state.ready.where((o) => o.id != orderId).toList(),
+        delivering: state.delivering.where((o) => o.id != orderId).toList(),
       );
     } else {
       _moveOrder(orderId, updated);
@@ -189,7 +219,12 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   CookOrderModel? _findOrder(String id) {
-    final all = [...state.pending, ...state.preparing, ...state.ready];
+    final all = [
+      ...state.pending,
+      ...state.preparing,
+      ...state.ready,
+      ...state.delivering,
+    ];
     try {
       return all.firstWhere((o) => o.id == id);
     } catch (_) {
@@ -210,27 +245,29 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
 
   void _moveOrder(String orderId, CookOrderModel updated) {
     if (!mounted) return;
-    // Remove from all sections
     final newPending =
         state.pending.where((o) => o.id != orderId).toList();
     final newPreparing =
         state.preparing.where((o) => o.id != orderId).toList();
-    final newReady =
-        state.ready.where((o) => o.id != orderId).toList();
+    final newReady = state.ready.where((o) => o.id != orderId).toList();
+    final newDelivering =
+        state.delivering.where((o) => o.id != orderId).toList();
 
-    // Add to correct section
     if (updated.isPending) {
       newPending.insert(0, updated);
     } else if (updated.isPreparing) {
       newPreparing.add(updated);
     } else if (updated.isReady) {
       newReady.add(updated);
+    } else if (updated.isDelivering) {
+      newDelivering.add(updated);
     }
 
     state = CookOrdersState(
       pending: newPending,
       preparing: newPreparing,
       ready: newReady,
+      delivering: newDelivering,
       isLoading: false,
     );
   }
@@ -250,3 +287,6 @@ final cookOrdersProvider =
 final cookDashboardProvider = FutureProvider<DashboardModel>((ref) async {
   return ref.read(ordersRepositoryProvider).getDashboard();
 });
+
+/// État en ligne / hors ligne de la cuisinière (local, synchronisé avec l'UI)
+final cookOnlineProvider = StateProvider<bool>((ref) => true);

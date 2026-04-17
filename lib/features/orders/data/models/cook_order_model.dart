@@ -55,6 +55,33 @@ class OrderItemModel {
   String get label => '$quantity× $menuItemName';
 }
 
+// ─── RiderInfo (livreur assigné) ──────────────────────────────────────────────
+
+class RiderInfo {
+  final String? id;
+  final String name;
+  final String? photoUrl;
+  final String? phone;
+  final int? etaMin;
+
+  const RiderInfo({
+    this.id,
+    required this.name,
+    this.photoUrl,
+    this.phone,
+    this.etaMin,
+  });
+
+  factory RiderInfo.fromJson(Map<String, dynamic> json) => RiderInfo(
+        id: (json['id'] ?? json['_id'])?.toString(),
+        name: json['name'] as String? ?? json['fullName'] as String? ?? 'Livreur',
+        photoUrl: json['photoUrl'] as String? ?? json['avatarUrl'] as String?,
+        phone: json['phone'] as String?,
+        etaMin: (json['etaMin'] as num?)?.toInt() ??
+            (json['eta'] as num?)?.toInt(),
+      );
+}
+
 // ─── CookOrderModel ───────────────────────────────────────────────────────────
 
 class CookOrderModel {
@@ -67,8 +94,20 @@ class CookOrderModel {
   final int deliveryFeeXaf;
   final String? landmark;
   final String? clientNote;
+
+  // Paiement
+  final String? paymentMethod; // 'cash' | 'mobile_money' | 'card' | ...
+  final String? paymentStatus; // 'paid' | 'pending' | 'unpaid'
+
+  // Rider (quand assigned / picked_up)
+  final RiderInfo? rider;
+
+  // Timestamps
   final DateTime createdAt;
   final DateTime? acceptedAt;
+  final DateTime? readyAt;
+  final DateTime? assignedAt;
+  final DateTime? pickedUpAt;
   final DateTime? deliveredAt;
   final DateTime? cancelledAt;
   final String? cancelReason;
@@ -84,8 +123,14 @@ class CookOrderModel {
     required this.deliveryFeeXaf,
     this.landmark,
     this.clientNote,
+    this.paymentMethod,
+    this.paymentStatus,
+    this.rider,
     required this.createdAt,
     this.acceptedAt,
+    this.readyAt,
+    this.assignedAt,
+    this.pickedUpAt,
     this.deliveredAt,
     this.cancelledAt,
     this.cancelReason,
@@ -105,6 +150,18 @@ class CookOrderModel {
         clientData?['phone'] as String? ??
         'Client';
 
+    // Payment
+    final paymentData = json['payment'] as Map<String, dynamic>?;
+    final paymentMethod = json['paymentMethod'] as String? ??
+        paymentData?['method'] as String?;
+    final paymentStatus = json['paymentStatus'] as String? ??
+        paymentData?['status'] as String?;
+
+    // Rider
+    final riderData = json['rider'] as Map<String, dynamic>? ??
+        json['driver'] as Map<String, dynamic>? ??
+        json['delivery']?['rider'] as Map<String, dynamic>?;
+
     return CookOrderModel(
       id: (json['id'] ?? json['_id'] ?? '').toString(),
       status: (json['status'] as String? ?? 'pending').toLowerCase(),
@@ -118,11 +175,23 @@ class CookOrderModel {
           json['delivery']?['landmark'] as String?,
       clientNote: json['clientNote'] as String? ??
           json['noteForCook'] as String?,
+      paymentMethod: paymentMethod?.toLowerCase(),
+      paymentStatus: paymentStatus?.toLowerCase(),
+      rider: riderData != null ? RiderInfo.fromJson(riderData) : null,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),
       acceptedAt: json['acceptedAt'] != null
           ? DateTime.tryParse(json['acceptedAt'] as String)
+          : null,
+      readyAt: json['readyAt'] != null
+          ? DateTime.tryParse(json['readyAt'] as String)
+          : null,
+      assignedAt: json['assignedAt'] != null
+          ? DateTime.tryParse(json['assignedAt'] as String)
+          : null,
+      pickedUpAt: json['pickedUpAt'] != null
+          ? DateTime.tryParse(json['pickedUpAt'] as String)
           : null,
       deliveredAt: json['deliveredAt'] != null
           ? DateTime.tryParse(json['deliveredAt'] as String)
@@ -139,7 +208,14 @@ class CookOrderModel {
     );
   }
 
-  CookOrderModel copyWith({String? status, DateTime? acceptedAt}) =>
+  CookOrderModel copyWith({
+    String? status,
+    DateTime? acceptedAt,
+    DateTime? readyAt,
+    DateTime? assignedAt,
+    DateTime? pickedUpAt,
+    RiderInfo? rider,
+  }) =>
       CookOrderModel(
         id: id,
         status: status ?? this.status,
@@ -150,8 +226,14 @@ class CookOrderModel {
         deliveryFeeXaf: deliveryFeeXaf,
         landmark: landmark,
         clientNote: clientNote,
+        paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
+        rider: rider ?? this.rider,
         createdAt: createdAt,
         acceptedAt: acceptedAt ?? this.acceptedAt,
+        readyAt: readyAt ?? this.readyAt,
+        assignedAt: assignedAt ?? this.assignedAt,
+        pickedUpAt: pickedUpAt ?? this.pickedUpAt,
         deliveredAt: deliveredAt,
         cancelledAt: cancelledAt,
         cancelReason: cancelReason,
@@ -174,7 +256,15 @@ class CookOrderModel {
     return 'il y a $hours h';
   }
 
-  /// Minutes since acceptance (for preparing timer)
+  /// Heure d'arrivée "12h34"
+  String get arrivalTime =>
+      DateFormat("HH'h'mm", 'fr').format(createdAt.toLocal());
+
+  /// Minutes écoulées depuis la création (pour timer urgence)
+  int get minutesSinceCreation =>
+      DateTime.now().difference(createdAt).inMinutes;
+
+  /// Minutes depuis acceptation (pour timer préparation)
   int get minutesSinceAccepted {
     if (acceptedAt == null) return 0;
     return DateTime.now().difference(acceptedAt!).inMinutes;
@@ -183,13 +273,54 @@ class CookOrderModel {
   String get formattedDate =>
       DateFormat('d MMM à HH:mm', 'fr').format(createdAt.toLocal());
 
+  // ── Status getters ────────────────────────────────────────────────────────
+
   bool get isPending => status == 'pending' || status == 'confirmed';
   bool get isPreparing => status == 'preparing';
   bool get isReady => status == 'ready';
+  bool get isAssigned => status == 'assigned';
+  bool get isPickedUp =>
+      status == 'picked_up' || status == 'pickedup' || status == 'delivering';
+  bool get isDelivering => isAssigned || isPickedUp;
   bool get isDelivered => status == 'delivered';
   bool get isCancelled => status == 'cancelled';
   bool get isActive =>
-      isPending || isPreparing || isReady || status == 'delivering';
+      isPending || isPreparing || isReady || isDelivering;
+
+  // ── Paiement helpers ──────────────────────────────────────────────────────
+
+  /// La commande est payée en ligne (mobile money / carte)
+  bool get isPaid =>
+      paymentStatus == 'paid' ||
+      status == 'confirmed' && paymentMethod != 'cash';
+
+  /// Paiement cash à la livraison
+  bool get isCashOnDelivery =>
+      paymentMethod == 'cash' || (paymentStatus == 'pending' && !isPaid);
+
+  String get paymentMethodLabel {
+    switch (paymentMethod) {
+      case 'cash':
+        return 'Cash';
+      case 'mobile_money':
+      case 'mobilemoney':
+      case 'momo':
+        return 'Mobile Money';
+      case 'card':
+        return 'Carte';
+      default:
+        return isPaid ? 'Payé' : 'Cash';
+    }
+  }
+
+  /// Étape de la timeline : 0=Reçue, 1=Acceptée, 2=Prête, 3=Livrée
+  int get timelineStep {
+    if (isDelivered) return 3;
+    if (isDelivering) return 2;
+    if (isReady) return 2;
+    if (isPreparing) return 1;
+    return 0;
+  }
 
   /// Résumé condensé des plats : "2x Ndolé, 1x Miondo"
   String get itemsSummary =>
