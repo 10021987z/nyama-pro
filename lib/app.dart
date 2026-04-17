@@ -17,6 +17,7 @@ import 'features/history/screens/history_detail_screen.dart';
 import 'features/orders/data/models/cook_order_model.dart';
 import 'features/reviews/screens/reviews_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
+import 'features/profile/screens/restaurant_presentation_screen.dart';
 import 'shared/widgets/pro_bottom_nav_bar.dart';
 
 class App extends StatelessWidget {
@@ -89,6 +90,10 @@ class App extends StatelessWidget {
       GoRoute(
         path: '/profile',
         builder: (context, state) => const ProfileScreen(),
+      ),
+      GoRoute(
+        path: '/profile/restaurant',
+        builder: (context, state) => const RestaurantPresentationScreen(),
       ),
     ],
     errorBuilder: (context, state) => Scaffold(

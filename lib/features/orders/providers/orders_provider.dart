@@ -97,7 +97,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       final updated = await _repo.acceptOrder(orderId);
       if (!mounted) return;
       _moveOrder(orderId, updated.copyWith(
-        status: 'confirmed',
+        status: 'preparing',
         acceptedAt: DateTime.now(),
       ));
     } catch (e) {
@@ -160,15 +160,15 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
 
   // ── Socket: status update ─────────────────────────────────────────────────
 
-  void updateOrderStatus(String orderId, String status) {
+  void updateOrderStatus(String orderId, String rawStatus) {
     if (!mounted) return;
     final order = _findOrder(orderId);
     if (order == null) return;
+    final status = rawStatus.toLowerCase();
 
     final updated = order.copyWith(
       status: status,
-      acceptedAt: (status == 'confirmed' || status == 'preparing') &&
-              order.acceptedAt == null
+      acceptedAt: status == 'preparing' && order.acceptedAt == null
           ? DateTime.now()
           : order.acceptedAt,
     );

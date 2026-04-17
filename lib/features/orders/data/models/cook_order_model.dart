@@ -107,7 +107,7 @@ class CookOrderModel {
 
     return CookOrderModel(
       id: (json['id'] ?? json['_id'] ?? '').toString(),
-      status: json['status'] as String? ?? 'pending',
+      status: (json['status'] as String? ?? 'pending').toLowerCase(),
       clientName: clientName,
       clientPhone: json['clientPhone'] as String? ??
           clientData?['phone'] as String?,
@@ -183,9 +183,8 @@ class CookOrderModel {
   String get formattedDate =>
       DateFormat('d MMM à HH:mm', 'fr').format(createdAt.toLocal());
 
-  bool get isPending => status == 'pending';
-  bool get isPreparing =>
-      status == 'confirmed' || status == 'preparing';
+  bool get isPending => status == 'pending' || status == 'confirmed';
+  bool get isPreparing => status == 'preparing';
   bool get isReady => status == 'ready';
   bool get isDelivered => status == 'delivered';
   bool get isCancelled => status == 'cancelled';
