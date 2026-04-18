@@ -43,7 +43,9 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
     final socket = ref.read(socketServiceProvider);
     final connected = socket.isConnected;
     if (connected) {
-      socket.emit('order:join', {'orderId': _orderId});
+      // Backend (events.gateway.ts) listens for `join:order` and joins the
+      // socket to room `order-${orderId}` where it emits `message:new`.
+      socket.emit('join:order', {'orderId': _orderId});
       socket.on('message:new', _onSocketMessage);
     } else {
       _pollTimer = Timer.periodic(
@@ -61,7 +63,7 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
     try {
       final socket = ref.read(socketServiceProvider);
       socket.off('message:new');
-      socket.emit('order:leave', {'orderId': _orderId});
+      // No `leave` event on backend — the room is cleaned up on disconnect.
     } catch (_) {}
     super.dispose();
   }

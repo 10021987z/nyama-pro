@@ -4,12 +4,14 @@ class TodayStatsModel {
   final int ordersCount;
   final int revenueXaf;
   final double avgRating;
+  final int prepTimeAvg; // minutes — base prep time average for the cook
   final List<HourlyBreakdownEntry> hourly;
 
   const TodayStatsModel({
     this.ordersCount = 0,
     this.revenueXaf = 0,
     this.avgRating = 0.0,
+    this.prepTimeAvg = 15,
     this.hourly = const [],
   });
 
@@ -26,6 +28,9 @@ class TodayStatsModel {
         avgRating: (json['avgRating'] as num?)?.toDouble() ??
             (json['rating'] as num?)?.toDouble() ??
             0.0,
+        prepTimeAvg: (json['prepTimeAvg'] as num?)?.toInt() ??
+            (json['prepTimeAvgMin'] as num?)?.toInt() ??
+            15,
         hourly: (json['hourly'] as List<dynamic>? ??
                 json['hourlyBreakdown'] as List<dynamic>? ??
                 const <dynamic>[])
@@ -108,22 +113,33 @@ class WeeklyStatsModel {
 }
 
 // ─── PrepTimeEstimateModel ───────────────────────────────────────────────────
+//
+// Backend (LOT A) returns `{ activeOrdersCount, estimatedPrepTimeMin }` from
+// `GET /cook/orders/prep-time-estimate`. We keep `avgMinutes` as a tolerant
+// fallback alias for older builds, but the canonical fields below match the
+// current contract.
 
 class PrepTimeEstimateModel {
-  final int avgMinutes;
-  final int? medianMinutes;
+  final int activeOrdersCount;
+  final int estimatedPrepTimeMin;
 
   const PrepTimeEstimateModel({
-    this.avgMinutes = 15,
-    this.medianMinutes,
+    this.activeOrdersCount = 0,
+    this.estimatedPrepTimeMin = 15,
   });
+
+  /// Backwards-compat getter — some UI surfaces may still reference the
+  /// previous `avgMinutes` name. Always returns the latest estimated prep time.
+  int get avgMinutes => estimatedPrepTimeMin;
 
   factory PrepTimeEstimateModel.fromJson(Map<String, dynamic> json) =>
       PrepTimeEstimateModel(
-        avgMinutes: (json['avgMinutes'] as num?)?.toInt() ??
-            (json['avg'] as num?)?.toInt() ??
-            15,
-        medianMinutes: (json['medianMinutes'] as num?)?.toInt(),
+        activeOrdersCount: (json['activeOrdersCount'] as num?)?.toInt() ?? 0,
+        estimatedPrepTimeMin:
+            (json['estimatedPrepTimeMin'] as num?)?.toInt() ??
+                (json['avgMinutes'] as num?)?.toInt() ??
+                (json['avg'] as num?)?.toInt() ??
+                15,
       );
 }
 
@@ -140,11 +156,19 @@ class RushStatusModel {
     this.durationMinutes,
   });
 
-  factory RushStatusModel.fromJson(Map<String, dynamic> json) => RushStatusModel(
-        active: json['rush'] as bool? ?? json['active'] as bool? ?? false,
-        until: json['until'] != null
-            ? DateTime.tryParse(json['until'] as String)
-            : null,
-        durationMinutes: (json['durationMinutes'] as num?)?.toInt(),
-      );
+  factory RushStatusModel.fromJson(Map<String, dynamic> json) {
+    // LOT A backend returns the full CookProfile after PATCH /cook/status/rush
+    // → fields `isRush`, `rushUntil`. Older/legacy responses may use `rush`,
+    // `active`, `until`. Accept all forms.
+    final activeRaw = json['isRush'] ??
+        json['rush'] ??
+        json['active'] ??
+        false;
+    final untilRaw = json['rushUntil'] ?? json['until'];
+    return RushStatusModel(
+      active: activeRaw is bool ? activeRaw : false,
+      until: untilRaw is String ? DateTime.tryParse(untilRaw) : null,
+      durationMinutes: (json['durationMinutes'] as num?)?.toInt(),
+    );
+  }
 }
