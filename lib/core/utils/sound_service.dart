@@ -49,6 +49,37 @@ class SoundService {
     }
   }
 
+  /// Petit "ding" doux quand un nouveau message arrive dans un chat de commande.
+  /// Fichier attendu : `assets/sounds/ding.mp3` (à fournir, facultatif).
+  static Future<void> playDing() async {
+    try {
+      final p = AudioPlayer();
+      await p.setVolume(0.5);
+      await p.play(AssetSource('sounds/ding.mp3'));
+    } catch (_) {
+      assert(() {
+        // ignore: avoid_print
+        print('🔔 DING (nouveau message)');
+        return true;
+      }());
+    }
+  }
+
+  /// "Cha-ching" satisfaisant lorsqu'une commande passe au statut DELIVERED.
+  /// Fichier attendu : `assets/sounds/cha-ching.mp3` (à fournir).
+  static Future<void> playChaChing() async {
+    try {
+      final p = AudioPlayer();
+      await p.play(AssetSource('sounds/cha-ching.mp3'));
+    } catch (_) {
+      assert(() {
+        // ignore: avoid_print
+        print('💰 CHA-CHING (commande livrée)');
+        return true;
+      }());
+    }
+  }
+
   /// Vibration longue 3× (500ms ON / 200ms OFF)
   static Future<void> vibrateLong() async {
     try {

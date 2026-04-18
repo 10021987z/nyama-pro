@@ -69,6 +69,18 @@ dependencies:
   # Sélection d'images (caméra/galerie)
   image_picker: ^1.1.2
 
+  # Animations micro-interactions (onboarding, sliders)
+  flutter_animate: ^4.5.0
+
+  # Graphiques (stats, revenus par heure)
+  fl_chart: ^0.66.0
+
+  # Animations Lottie (optionnel — utilisé si asset JSON local présent)
+  lottie: ^3.1.0
+
+  # Préférences non-sensibles (onboarding flag, etc.)
+  shared_preferences: ^2.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

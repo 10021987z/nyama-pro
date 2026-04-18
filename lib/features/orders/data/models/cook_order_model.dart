@@ -322,6 +322,19 @@ class CookOrderModel {
     return 0;
   }
 
+  /// Étape sur la timeline 7-points utilisée par CompactOrderTimeline :
+  /// 0=Reçue, 1=Acceptée, 2=En préparation, 3=Prête, 4=Récupérée, 5=En route, 6=Livrée.
+  int get compactTimelineStep {
+    if (isDelivered) return 6;
+    if (isPickedUp) return 5; // "En route" après pickup
+    if (isAssigned) return 4; // "Récupérée" = livreur assigné/en chemin côté resto
+    if (isReady) return 3;
+    if (isPreparing) return 2;
+    // acceptedAt non null = acceptée sans être encore en préparation
+    if (acceptedAt != null) return 1;
+    return 0;
+  }
+
   /// Résumé condensé des plats : "2x Ndolé, 1x Miondo"
   String get itemsSummary =>
       items.map((i) => '${i.quantity}x ${i.menuItemName}').join(', ');

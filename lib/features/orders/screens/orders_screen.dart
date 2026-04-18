@@ -5,8 +5,14 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/fcfa_formatter.dart';
 import '../../../core/utils/sound_service.dart';
+import '../../../shared/widgets/compact_order_timeline.dart';
+import '../../stats/providers/stats_provider.dart';
+import '../../stats/widgets/daily_stats_footer.dart';
+import '../../stats/widgets/rush_mode_fab.dart';
+import '../../stats/widgets/weekly_recap_carousel.dart';
 import '../data/models/cook_order_model.dart';
 import '../providers/orders_provider.dart';
+import 'order_detail_screen.dart';
 
 // ─── Palette pastel des sections (fonds très clairs) ─────────────────────────
 const _bgNew = Color(0xFFFFF1E3); // orange très clair
@@ -23,7 +29,9 @@ class OrdersScreen extends ConsumerStatefulWidget {
 
 class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   Timer? _tick;
+  Timer? _statsRefresh;
   int _lastPendingCount = 0;
+  final Set<String> _knownDeliveredIds = {};
   bool _deliveringExpanded = false;
 
   @override
@@ -32,12 +40,53 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     // Rafraîchit les timers de cartes toutes les 30s
     _tick = Timer.periodic(
         const Duration(seconds: 30), (_) => mounted ? setState(() {}) : null);
+    // Auto-refresh des stats du jour toutes les 2 min
+    _statsRefresh = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) {
+        if (!mounted) return;
+        ref.invalidate(todayStatsProvider);
+        ref.invalidate(weeklyStatsProvider);
+      },
+    );
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _statsRefresh?.cancel();
     super.dispose();
+  }
+
+  void _openOrderDetail(CookOrderModel order) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => OrderDetailScreen(order: order),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+        transitionDuration: const Duration(milliseconds: 260),
+      ),
+    );
+  }
+
+  /// Enveloppe une carte avec Hero + GestureDetector pour ouvrir le détail.
+  Widget _openable(CookOrderModel order, Widget card) {
+    return Hero(
+      tag: 'order-${order.id}',
+      flightShuttleBuilder: (_, __, ___, ____, _____) =>
+          Material(color: Colors.transparent, child: card),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => _openOrderDetail(order),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            child: card,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -50,6 +99,45 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         SoundService.playNewOrderAlert();
       }
       _lastPendingCount = next.pending.length;
+
+      // Son "cha-ching" quand une commande transitionne vers DELIVERED
+      final prevIds = <String>{};
+      if (prev != null) {
+        for (final list in [
+          prev.pending,
+          prev.preparing,
+          prev.ready,
+          prev.delivering,
+        ]) {
+          for (final o in list) {
+            prevIds.add(o.id);
+          }
+        }
+      }
+      final nextIds = <String>{};
+      for (final list in [
+        next.pending,
+        next.preparing,
+        next.ready,
+        next.delivering,
+      ]) {
+        for (final o in list) {
+          nextIds.add(o.id);
+        }
+      }
+      // Les IDs qui étaient dans "delivering" et ont disparu du store
+      // = probablement livrés (ou annulés). On ne jour le son que pour
+      // ceux qui étaient en livraison.
+      if (prev != null) {
+        final deliveredIds = prev.delivering
+            .where((o) => !nextIds.contains(o.id))
+            .map((o) => o.id);
+        for (final id in deliveredIds) {
+          if (_knownDeliveredIds.add(id)) {
+            SoundService.playChaChing();
+          }
+        }
+      }
     });
 
     // Fallback mock si l'API échoue et tout est vide
@@ -61,10 +149,23 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      floatingActionButton: const Padding(
+        padding: EdgeInsets.only(bottom: 60),
+        child: RushModeFab(),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      bottomSheet: const DailyStatsFooter(),
       body: SafeArea(
         child: Column(
           children: [
             const _Header(),
+            const RushBanner(),
+            const SizedBox(height: 6),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: WeeklyRecapCarousel(),
+            ),
+            const SizedBox(height: 6),
             Expanded(
               child: state.isLoading
                   ? const Center(
@@ -96,10 +197,13 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : pending
-                                    .map((o) => _NewOrderCard(
-                                          order: o,
-                                          onAccept: () => _accept(o),
-                                          onReject: () => _reject(o),
+                                    .map((o) => _openable(
+                                          o,
+                                          _NewOrderCard(
+                                            order: o,
+                                            onAccept: () => _accept(o),
+                                            onReject: () => _reject(o),
+                                          ),
                                         ))
                                     .toList(),
                           ),
@@ -121,9 +225,12 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : preparing
-                                    .map((o) => _PreparingCard(
-                                          order: o,
-                                          onReady: () => _markReady(o),
+                                    .map((o) => _openable(
+                                          o,
+                                          _PreparingCard(
+                                            order: o,
+                                            onReady: () => _markReady(o),
+                                          ),
                                         ))
                                     .toList(),
                           ),
@@ -144,7 +251,10 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : ready
-                                    .map((o) => _ReadyCard(order: o))
+                                    .map((o) => _openable(
+                                          o,
+                                          _ReadyCard(order: o),
+                                        ))
                                     .toList(),
                           ),
                           const SizedBox(height: 12),
@@ -169,7 +279,10 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : delivering
-                                    .map((o) => _DeliveringCard(order: o))
+                                    .map((o) => _openable(
+                                          o,
+                                          _DeliveringCard(order: o),
+                                        ))
                                     .toList(),
                           ),
                           const SizedBox(height: 20),
@@ -1070,7 +1183,7 @@ class _NewOrderCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _OrderTimeline(order: order),
+          CompactOrderTimeline(currentStep: order.compactTimelineStep),
         ],
       ),
     );
@@ -1218,7 +1331,7 @@ class _PreparingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _OrderTimeline(order: order),
+          CompactOrderTimeline(currentStep: order.compactTimelineStep),
         ],
       ),
     );
@@ -1347,7 +1460,7 @@ class _ReadyCard extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 12),
-          _OrderTimeline(order: order),
+          CompactOrderTimeline(currentStep: order.compactTimelineStep),
         ],
       ),
     );
@@ -1425,7 +1538,7 @@ class _DeliveringCard extends StatelessWidget {
           const SizedBox(height: 10),
           if (order.rider != null) _RiderTile(rider: order.rider!),
           const SizedBox(height: 10),
-          _OrderTimeline(order: order),
+          CompactOrderTimeline(currentStep: order.compactTimelineStep),
         ],
       ),
     );
@@ -1513,119 +1626,6 @@ class _RiderTile extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─── Timeline mini horizontale (Reçue → Acceptée → Prête → Livrée) ──────────
-
-class _OrderTimeline extends StatelessWidget {
-  final CookOrderModel order;
-  const _OrderTimeline({required this.order});
-
-  @override
-  Widget build(BuildContext context) {
-    const labels = ['Reçue', 'Acceptée', 'Prête', 'Livrée'];
-    final step = order.timelineStep;
-    final stamps = <DateTime?>[
-      order.createdAt,
-      order.acceptedAt,
-      order.readyAt ?? order.assignedAt ?? order.pickedUpAt,
-      order.deliveredAt,
-    ];
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Column(
-          children: [
-            Row(
-              children: List.generate(labels.length * 2 - 1, (index) {
-                if (index.isOdd) {
-                  final leftStep = index ~/ 2;
-                  final filled = leftStep < step;
-                  return Expanded(
-                    child: Container(
-                      height: 2,
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      color: filled
-                          ? AppColors.primary
-                          : AppColors.outlineVariant,
-                    ),
-                  );
-                }
-                final i = index ~/ 2;
-                final done = i <= step;
-                final active = i == step;
-                return _TimelineDot(active: active, done: done);
-              }),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: List.generate(labels.length, (i) {
-                final done = i <= step;
-                final ts = stamps[i];
-                return Expanded(
-                  child: Column(
-                    children: [
-                      Text(
-                        labels[i],
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'NunitoSans',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: done
-                              ? AppColors.textPrimary
-                              : AppColors.textTertiary,
-                        ),
-                      ),
-                      if (done && ts != null)
-                        Text(
-                          _hhmm(ts),
-                          style: const TextStyle(
-                            fontFamily: 'SpaceMono',
-                            fontSize: 9,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              }),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _TimelineDot extends StatelessWidget {
-  final bool active;
-  final bool done;
-  const _TimelineDot({required this.active, required this.done});
-
-  @override
-  Widget build(BuildContext context) {
-    Color fill;
-    if (active) {
-      fill = AppColors.primary;
-    } else if (done) {
-      fill = AppColors.success;
-    } else {
-      fill = AppColors.outlineVariant;
-    }
-    return Container(
-      width: active ? 14 : 10,
-      height: active ? 14 : 10,
-      decoration: BoxDecoration(
-        color: fill,
-        shape: BoxShape.circle,
-        border: active
-            ? Border.all(
-                color: AppColors.primary.withValues(alpha: 0.2), width: 3)
-            : null,
       ),
     );
   }
@@ -1766,12 +1766,6 @@ void _openNotificationsSheet(BuildContext context) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-String _hhmm(DateTime dt) {
-  final l = dt.toLocal();
-  String two(int v) => v.toString().padLeft(2, '0');
-  return '${two(l.hour)}:${two(l.minute)}';
-}
 
 String _shortFcfa(int amount) {
   if (amount >= 1000000) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../stats/data/stats_repository.dart';
 import '../data/models/menu_item_model.dart';
 import '../providers/menu_provider.dart';
 
@@ -192,7 +193,43 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       );
       return;
     }
+
+    // Demande la raison si on passe en rupture
+    String? reason;
+    if (dish.isAvailable) {
+      final picked = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Mettre en rupture ?'),
+          content: const Text('Jusqu\'à quand ce plat est indisponible ?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Annuler'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'until_evening'),
+              child: const Text('Jusqu\'à ce soir'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, 'permanent'),
+              child: const Text('Rupture permanente'),
+            ),
+          ],
+        ),
+      );
+      if (picked == null) return;
+      reason = picked;
+    }
+
     try {
+      // Appel LOT A — tombe en fallback silencieux si endpoint 404/500
+      await StatsRepository().setMenuItemAvailability(
+        id: dish.id,
+        available: !dish.isAvailable,
+        reason: reason,
+      );
+      // Double toggle via l'endpoint existant pour garder l'optimistic update
       await ref.read(cookMenuProvider.notifier).toggleAvailability(dish.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -310,7 +347,7 @@ class _DishCard extends StatelessWidget {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      Switch(
+                      Switch.adaptive(
                         value: dish.isAvailable,
                         activeThumbColor: AppColors.success,
                         onChanged: onToggle,

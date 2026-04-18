@@ -7,6 +7,7 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/screens/splash_screen.dart';
 import 'features/auth/screens/phone_input_screen.dart';
 import 'features/auth/screens/otp_verification_screen.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/orders/screens/orders_screen.dart';
 import 'features/menu/screens/menu_screen.dart';
 import 'features/menu/screens/menu_form_screen.dart';
@@ -17,6 +18,7 @@ import 'features/history/screens/history_detail_screen.dart';
 import 'features/orders/data/models/cook_order_model.dart';
 import 'features/reviews/screens/reviews_screen.dart';
 import 'features/profile/screens/profile_screen.dart';
+import 'features/stats/screens/stats_detail_screen.dart';
 import 'features/profile/screens/restaurant_presentation_screen.dart';
 import 'features/profile/screens/help_support_screen.dart';
 import 'features/profile/screens/faq_screen.dart';
@@ -26,119 +28,131 @@ import 'features/profile/screens/about_screen.dart';
 import 'shared/widgets/pro_bottom_nav_bar.dart';
 
 class App extends StatelessWidget {
-  App({super.key});
+  final String initialLocation;
 
-  final GoRouter _router = GoRouter(
-    initialLocation: '/splash',
-    debugLogDiagnostics: false,
-    routes: [
-      GoRoute(
-        path: '/splash',
-        builder: (context, state) => const SplashScreen(),
-      ),
-      // Login = saisie téléphone + OTP (flux identique au client)
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const PhoneInputScreen(),
-      ),
-      GoRoute(
-        path: '/otp',
-        builder: (context, state) {
-          final phone = state.extra as String? ?? '';
-          return OtpVerificationScreen(phone: phone);
-        },
-      ),
-      // Shell principal avec bottom nav 4 tabs (Commandes/Menu/Revenus/Avis)
-      GoRoute(
-        path: '/home',
-        builder: (context, state) => const MainShell(initialIndex: 0),
-      ),
-      GoRoute(
-        path: '/orders',
-        builder: (context, state) => const MainShell(initialIndex: 0),
-      ),
-      GoRoute(
-        path: '/menu',
-        builder: (context, state) => const MainShell(initialIndex: 1),
-      ),
-      GoRoute(
-        path: '/menu/add',
-        builder: (context, state) => const MenuFormScreen(),
-      ),
-      GoRoute(
-        path: '/menu/edit/:id',
-        builder: (context, state) =>
-            MenuFormScreen(item: state.extra as MenuItemModel?),
-      ),
-      GoRoute(
-        path: '/revenue',
-        builder: (context, state) => const MainShell(initialIndex: 2),
-      ),
-      GoRoute(
-        path: '/reviews',
-        builder: (context, state) => const MainShell(initialIndex: 3),
-      ),
-      GoRoute(
-        path: '/history',
-        builder: (context, state) => const HistoryScreen(),
-      ),
-      GoRoute(
-        path: '/history/:id',
-        builder: (context, state) => HistoryDetailScreen(
-          orderId: state.pathParameters['id']!,
-          initialOrder: state.extra is CookOrderModel
-              ? state.extra as CookOrderModel
-              : null,
-        ),
-      ),
-      // Profil accessible via l'avatar du header (hors shell)
-      GoRoute(
-        path: '/profile',
-        builder: (context, state) => const ProfileScreen(),
-      ),
-      GoRoute(
-        path: '/profile/restaurant',
-        builder: (context, state) => const RestaurantPresentationScreen(),
-      ),
-      GoRoute(
-        path: '/profile/support',
-        builder: (context, state) => const HelpSupportScreen(),
-      ),
-      GoRoute(
-        path: '/profile/faq',
-        builder: (context, state) => const FaqScreen(),
-      ),
-      GoRoute(
-        path: '/profile/cgu',
-        builder: (context, state) => const CguScreen(),
-      ),
-      GoRoute(
-        path: '/profile/privacy',
-        builder: (context, state) => const PrivacyScreen(),
-      ),
-      GoRoute(
-        path: '/profile/about',
-        builder: (context, state) => const AboutScreen(),
-      ),
-    ],
-    errorBuilder: (context, state) => Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('🗺️', style: TextStyle(fontSize: 64)),
-            const SizedBox(height: 16),
-            const Text('Page introuvable'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => context.go('/home'),
-              child: const Text('Accueil'),
+  App({super.key, this.initialLocation = '/splash'})
+      : _router = GoRouter(
+          initialLocation: initialLocation,
+          debugLogDiagnostics: false,
+          routes: [
+            GoRoute(
+              path: '/splash',
+              builder: (context, state) => const SplashScreen(),
+            ),
+            GoRoute(
+              path: '/onboarding',
+              builder: (context, state) => const OnboardingScreen(),
+            ),
+            // Login = saisie téléphone + OTP (flux identique au client)
+            GoRoute(
+              path: '/login',
+              builder: (context, state) => const PhoneInputScreen(),
+            ),
+            GoRoute(
+              path: '/otp',
+              builder: (context, state) {
+                final phone = state.extra as String? ?? '';
+                return OtpVerificationScreen(phone: phone);
+              },
+            ),
+            // Shell principal avec bottom nav 4 tabs (Commandes/Menu/Revenus/Avis)
+            GoRoute(
+              path: '/home',
+              builder: (context, state) => const MainShell(initialIndex: 0),
+            ),
+            GoRoute(
+              path: '/orders',
+              builder: (context, state) => const MainShell(initialIndex: 0),
+            ),
+            GoRoute(
+              path: '/menu',
+              builder: (context, state) => const MainShell(initialIndex: 1),
+            ),
+            GoRoute(
+              path: '/menu/add',
+              builder: (context, state) => const MenuFormScreen(),
+            ),
+            GoRoute(
+              path: '/menu/edit/:id',
+              builder: (context, state) =>
+                  MenuFormScreen(item: state.extra as MenuItemModel?),
+            ),
+            GoRoute(
+              path: '/revenue',
+              builder: (context, state) => const MainShell(initialIndex: 2),
+            ),
+            GoRoute(
+              path: '/reviews',
+              builder: (context, state) => const MainShell(initialIndex: 3),
+            ),
+            GoRoute(
+              path: '/stats',
+              builder: (context, state) => const StatsDetailScreen(),
+            ),
+            GoRoute(
+              path: '/history',
+              builder: (context, state) => const HistoryScreen(),
+            ),
+            GoRoute(
+              path: '/history/:id',
+              builder: (context, state) => HistoryDetailScreen(
+                orderId: state.pathParameters['id']!,
+                initialOrder: state.extra is CookOrderModel
+                    ? state.extra as CookOrderModel
+                    : null,
+              ),
+            ),
+            // Profil accessible via l'avatar du header (hors shell)
+            GoRoute(
+              path: '/profile',
+              builder: (context, state) => const ProfileScreen(),
+            ),
+            GoRoute(
+              path: '/profile/restaurant',
+              builder: (context, state) =>
+                  const RestaurantPresentationScreen(),
+            ),
+            GoRoute(
+              path: '/profile/support',
+              builder: (context, state) => const HelpSupportScreen(),
+            ),
+            GoRoute(
+              path: '/profile/faq',
+              builder: (context, state) => const FaqScreen(),
+            ),
+            GoRoute(
+              path: '/profile/cgu',
+              builder: (context, state) => const CguScreen(),
+            ),
+            GoRoute(
+              path: '/profile/privacy',
+              builder: (context, state) => const PrivacyScreen(),
+            ),
+            GoRoute(
+              path: '/profile/about',
+              builder: (context, state) => const AboutScreen(),
             ),
           ],
-        ),
-      ),
-    ),
-  );
+          errorBuilder: (context, state) => Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('🗺️', style: TextStyle(fontSize: 64)),
+                  const SizedBox(height: 16),
+                  const Text('Page introuvable'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => context.go('/home'),
+                    child: const Text('Accueil'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+
+  final GoRouter _router;
 
   @override
   Widget build(BuildContext context) {

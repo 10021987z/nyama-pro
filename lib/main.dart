@@ -6,6 +6,7 @@ import 'app.dart';
 import 'core/l10n/translations.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/storage/secure_storage.dart';
+import 'features/onboarding/screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,12 +28,15 @@ void main() async {
       ? storedLang
       : 'fr';
 
+  // Détermine si l'onboarding doit être affiché en premier
+  final onboardingDone = await isOnboardingCompleted();
+
   runApp(
     ProviderScope(
       overrides: [
         languageProvider.overrideWith((ref) => initialLang),
       ],
-      child: App(),
+      child: App(initialLocation: onboardingDone ? '/splash' : '/onboarding'),
     ),
   );
 }
