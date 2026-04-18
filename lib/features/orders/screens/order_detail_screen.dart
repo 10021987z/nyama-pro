@@ -154,37 +154,53 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
   }
 
   Future<void> _accept() async {
+    print('[UI] detail accept order=$_orderId');
     try {
       await ref.read(cookOrdersProvider.notifier).accept(_orderId);
       if (!mounted) return;
       SoundService.playSuccessSound();
       Navigator.of(context).pop();
     } catch (e) {
+      print('[UI] detail accept FAILED order=$_orderId error=$e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Erreur : $e'),
+          duration: const Duration(seconds: 6),
+          content: Text(_prettyError(e)),
         ),
       );
     }
   }
 
   Future<void> _markReady() async {
+    print('[UI] detail markReady order=$_orderId');
     try {
       await ref.read(cookOrdersProvider.notifier).markReady(_orderId);
       if (!mounted) return;
       SoundService.playSuccessSound();
       Navigator.of(context).pop();
     } catch (e) {
+      print('[UI] detail markReady FAILED order=$_orderId error=$e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
-          content: Text('Erreur : $e'),
+          duration: const Duration(seconds: 6),
+          content: Text(_prettyError(e)),
         ),
       );
     }
+  }
+
+  String _prettyError(Object e) {
+    try {
+      // ignore: avoid_dynamic_calls
+      final dyn = e as dynamic;
+      final msg = dyn.message;
+      if (msg is String && msg.isNotEmpty) return 'Erreur : $msg';
+    } catch (_) {}
+    return 'Erreur : ${e.toString()}';
   }
 
   @override

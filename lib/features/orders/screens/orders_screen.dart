@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/socket_provider.dart';
 import '../../../core/utils/fcfa_formatter.dart';
 import '../../../core/utils/sound_service.dart';
 import '../../../shared/widgets/compact_order_timeline.dart';
@@ -49,12 +51,53 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         ref.invalidate(weeklyStatsProvider);
       },
     );
+    // Écoute des événements Socket.IO temps réel
+    WidgetsBinding.instance.addPostFrameCallback((_) => _wireSocket());
+  }
+
+  void _wireSocket() {
+    if (!mounted) return;
+    final socket = ref.read(socketServiceProvider);
+    print('[SOCKET] wire order:new / order:status listeners');
+
+    socket.on('order:new', (data) {
+      print('[SOCKET] order:new received: $data');
+      if (!mounted) return;
+      try {
+        Map<String, dynamic>? payload;
+        if (data is Map<String, dynamic>) payload = data;
+        if (data is Map && data['order'] is Map<String, dynamic>) {
+          payload = data['order'] as Map<String, dynamic>;
+        }
+        if (payload == null) return;
+        final order = CookOrderModel.fromJson(payload);
+        ref.read(cookOrdersProvider.notifier).addOrder(order);
+        // Son + vibration immédiatement — ne dépend plus du diff pending
+        SoundService.playNewOrderAlert();
+      } catch (e) {
+        print('[SOCKET] order:new parse error: $e');
+      }
+    });
+
+    socket.on('order:status', (data) {
+      print('[SOCKET] order:status received: $data');
+      if (!mounted || data is! Map) return;
+      final id = (data['orderId'] ?? data['id']) as String?;
+      final status = (data['status'] ?? data['newStatus']) as String?;
+      if (id == null || status == null) return;
+      ref.read(cookOrdersProvider.notifier).updateOrderStatus(id, status);
+    });
   }
 
   @override
   void dispose() {
     _tick?.cancel();
     _statsRefresh?.cancel();
+    try {
+      final socket = ref.read(socketServiceProvider);
+      socket.off('order:new');
+      socket.off('order:status');
+    } catch (_) {}
     super.dispose();
   }
 
@@ -67,6 +110,26 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         transitionDuration: const Duration(milliseconds: 260),
       ),
     );
+  }
+
+  /// Slide horizontal 300ms à l'entrée d'une carte dans une section.
+  /// La key contient le nom de la section : quand une commande change de
+  /// section (ex. pending → preparing), le widget est remonté et l'animation
+  /// rejoue, donnant l'impression d'un "slide" depuis l'orange vers le jaune.
+  Widget _animatedSlot({
+    required String section,
+    required String orderId,
+    required Widget child,
+  }) {
+    return child
+        .animate(key: ValueKey('slot-$section-$orderId'))
+        .slideX(
+          begin: 0.35,
+          end: 0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        )
+        .fadeIn(duration: const Duration(milliseconds: 220));
   }
 
   /// Enveloppe une carte avec Hero + GestureDetector pour ouvrir le détail.
@@ -197,12 +260,16 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : pending
-                                    .map((o) => _openable(
-                                          o,
-                                          _NewOrderCard(
-                                            order: o,
-                                            onAccept: () => _accept(o),
-                                            onReject: () => _reject(o),
+                                    .map((o) => _animatedSlot(
+                                          section: 'new',
+                                          orderId: o.id,
+                                          child: _openable(
+                                            o,
+                                            _NewOrderCard(
+                                              order: o,
+                                              onAccept: () => _accept(o),
+                                              onReject: () => _reject(o),
+                                            ),
                                           ),
                                         ))
                                     .toList(),
@@ -225,11 +292,15 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : preparing
-                                    .map((o) => _openable(
-                                          o,
-                                          _PreparingCard(
-                                            order: o,
-                                            onReady: () => _markReady(o),
+                                    .map((o) => _animatedSlot(
+                                          section: 'preparing',
+                                          orderId: o.id,
+                                          child: _openable(
+                                            o,
+                                            _PreparingCard(
+                                              order: o,
+                                              onReady: () => _markReady(o),
+                                            ),
                                           ),
                                         ))
                                     .toList(),
@@ -251,9 +322,13 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : ready
-                                    .map((o) => _openable(
-                                          o,
-                                          _ReadyCard(order: o),
+                                    .map((o) => _animatedSlot(
+                                          section: 'ready',
+                                          orderId: o.id,
+                                          child: _openable(
+                                            o,
+                                            _ReadyCard(order: o),
+                                          ),
                                         ))
                                     .toList(),
                           ),
@@ -279,9 +354,13 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     ),
                                   ]
                                 : delivering
-                                    .map((o) => _openable(
-                                          o,
-                                          _DeliveringCard(order: o),
+                                    .map((o) => _animatedSlot(
+                                          section: 'delivering',
+                                          orderId: o.id,
+                                          child: _openable(
+                                            o,
+                                            _DeliveringCard(order: o),
+                                          ),
                                         ))
                                     .toList(),
                           ),
@@ -299,6 +378,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   Future<void> _accept(CookOrderModel o) async {
+    print('[UI] accept order=${o.id} (#${o.shortId})');
     try {
       await ref.read(cookOrdersProvider.notifier).accept(o.id);
       if (!mounted) return;
@@ -310,12 +390,13 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         ),
       );
     } catch (e) {
+      print('[UI] accept FAILED order=${o.id} error=$e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
           duration: const Duration(seconds: 6),
-          content: Text('Erreur : ${e.toString()}'),
+          content: Text(_prettyError(e)),
         ),
       );
     }
@@ -345,18 +426,20 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           .read(cookOrdersProvider.notifier)
           .reject(o.id, 'Refusée par la cuisinière');
     } catch (e) {
+      print('[UI] reject FAILED order=${o.id} error=$e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
           duration: const Duration(seconds: 6),
-          content: Text('Erreur : ${e.toString()}'),
+          content: Text(_prettyError(e)),
         ),
       );
     }
   }
 
   Future<void> _markReady(CookOrderModel o) async {
+    print('[UI] markReady order=${o.id} (#${o.shortId}) status=${o.status}');
     try {
       await ref.read(cookOrdersProvider.notifier).markReady(o.id);
       if (!mounted) return;
@@ -368,15 +451,28 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         ),
       );
     } catch (e) {
+      print('[UI] markReady FAILED order=${o.id} error=$e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.error,
           duration: const Duration(seconds: 6),
-          content: Text('Erreur : ${e.toString()}'),
+          content: Text(_prettyError(e)),
         ),
       );
     }
+  }
+
+  /// Renvoie un message lisible pour l'utilisateur :
+  /// priorité au message serveur (ApiException.message), fallback `toString()`.
+  String _prettyError(Object e) {
+    try {
+      // ignore: avoid_dynamic_calls
+      final dyn = e as dynamic;
+      final msg = dyn.message;
+      if (msg is String && msg.isNotEmpty) return 'Erreur : $msg';
+    } catch (_) {}
+    return 'Erreur : ${e.toString()}';
   }
 
   // ── Mock fallback data ────────────────────────────────────────────────────
@@ -639,12 +735,14 @@ class _OnlineToggle extends StatelessWidget {
             Expanded(
               child: Text(
                 online ? 'EN LIGNE' : 'HORS LIGNE',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontFamily: 'Montserrat',
                   color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  letterSpacing: 0.4,
                 ),
               ),
             ),

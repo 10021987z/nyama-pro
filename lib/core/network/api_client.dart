@@ -167,7 +167,11 @@ class _LogInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     // ignore: avoid_print
-    print('[API ERROR] ${err.type} ${err.response?.statusCode} ${err.requestOptions.path}: ${err.message}');
-    handler.next(ApiExceptionHandler.handle(err) as DioException? ?? err);
+    print('[API ERROR] ${err.type} ${err.response?.statusCode} '
+        '${err.requestOptions.method} ${err.requestOptions.path} '
+        '→ msg=${err.message} body=${err.response?.data}');
+    // Ne jamais caster ApiException en DioException (null sinon). Laisse le
+    // repository invoquer ApiExceptionHandler.handle(err) lui-même.
+    handler.next(err);
   }
 }

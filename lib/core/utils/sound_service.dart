@@ -5,20 +5,57 @@ class SoundService {
   SoundService._();
 
   static final _player = AudioPlayer();
+  static bool _contextApplied = false;
+
+  /// Force un contexte audio type "alarme/notification" afin que l'alerte
+  /// nouvelle commande sonne même en mode silencieux Android (hors DND strict).
+  static Future<void> _ensureAlertContext() async {
+    if (_contextApplied) return;
+    try {
+      await _player.setAudioContext(
+        AudioContext(
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: false,
+            stayAwake: true,
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.notificationRingtone,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: const {
+              AVAudioSessionOptions.mixWithOthers,
+              AVAudioSessionOptions.duckOthers,
+            },
+          ),
+        ),
+      );
+      _contextApplied = true;
+    } catch (e) {
+      // ignore: avoid_print
+      print('[SOUND] setAudioContext failed: $e');
+    }
+  }
 
   /// Alerte forte nouvelle commande — son + vibration 3×
   static Future<void> playNewOrderAlert() async {
+    // ignore: avoid_print
+    print('[SOUND] playNewOrderAlert()');
     await vibrateLong();
+    await _ensureAlertContext();
     try {
-      // Si le fichier existe dans assets/sounds/new_order.mp3
+      await _player.stop();
+      await _player.setVolume(1.0);
       await _player.play(AssetSource('sounds/new_order.mp3'));
-    } catch (_) {
-      // En dev : pas de fichier audio, on log seulement
-      assert(() {
+    } catch (e) {
+      // ignore: avoid_print
+      print('[SOUND] new_order.mp3 failed: $e → fallback ding.mp3');
+      try {
+        await _player.play(AssetSource('sounds/ding.mp3'));
+      } catch (e2) {
         // ignore: avoid_print
-        print('🔔 ALERTE SONORE — NOUVELLE COMMANDE');
-        return true;
-      }());
+        print('[SOUND] fallback ding failed: $e2');
+      }
     }
   }
 

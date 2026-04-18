@@ -112,13 +112,22 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
 
   Future<void> accept(String orderId) async {
     try {
+      print('[PROVIDER] accept start orderId=$orderId');
       final updated = await _repo.acceptOrder(orderId);
       if (!mounted) return;
+      print('[PROVIDER] accept ok orderId=$orderId → status=preparing');
+      // Met à jour immédiatement l'état local : la carte migre
+      // de pending (orange) → preparing (jaune) et déclenche l'animation.
       _moveOrder(orderId, updated.copyWith(
         status: 'preparing',
         acceptedAt: DateTime.now(),
       ));
+      // Reconcile avec le backend en arrière-plan (sans bloquer la transition).
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) refresh();
+      });
     } catch (e) {
+      print('[PROVIDER] accept FAILED orderId=$orderId error=$e');
       if (!mounted) return;
       rethrow;
     }
