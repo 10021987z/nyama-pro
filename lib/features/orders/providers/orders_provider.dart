@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/models/cook_order_model.dart';
 import '../data/orders_repository.dart';
@@ -52,6 +53,7 @@ class CookOrdersState {
 
 class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
   final OrdersRepository _repo;
+  Timer? _pollTimer;
 
   CookOrdersNotifier(this._repo) : super(const CookOrdersState()) {
     refresh();
@@ -71,6 +73,59 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
         error: e.toString(),
       );
     }
+  }
+
+  /// Rafraîchissement silencieux (sans passer en isLoading) — utilisé par le
+  /// polling de secours quand le socket ne délivre pas d'événement.
+  Future<void> _silentRefresh() async {
+    try {
+      final all = await _repo.getCookOrders();
+      if (!mounted) return;
+      _categorize(all);
+    } catch (_) {
+      // Silencieux : on ne spamme pas l'UI d'erreurs si l'API flanche en polling.
+    }
+  }
+
+  // ── Polling fallback (5s) ─────────────────────────────────────────────────
+
+  /// Vrai si au moins une commande est active (pas DELIVERED ni CANCELLED).
+  bool get _hasActiveOrders => state.totalActive > 0;
+
+  void _ensurePolling() {
+    if (_hasActiveOrders) {
+      _startPolling();
+    } else {
+      _stopPolling();
+    }
+  }
+
+  void _startPolling() {
+    if (_pollTimer != null) return;
+    // ignore: avoid_print
+    print('⏱️  [Pro] Start 5s polling (active orders > 0)');
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || !_hasActiveOrders) {
+        _stopPolling();
+        return;
+      }
+      _silentRefresh();
+    });
+  }
+
+  void _stopPolling() {
+    if (_pollTimer == null) return;
+    // ignore: avoid_print
+    print('⏱️  [Pro] Stop polling (no active orders)');
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    super.dispose();
   }
 
   void _categorize(List<CookOrderModel> orders) {
@@ -106,6 +161,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       delivering: delivering,
       isLoading: false,
     );
+    _ensurePolling();
   }
 
   // ── Accept ────────────────────────────────────────────────────────────────
@@ -175,6 +231,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       state = state.copyWith(
         pending: state.pending.where((o) => o.id != orderId).toList(),
       );
+      _ensurePolling();
     } catch (e) {
       if (!mounted) return;
       rethrow;
@@ -194,6 +251,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     state = state.copyWith(
       pending: [order, ...state.pending],
     );
+    _ensurePolling();
   }
 
   // ── Socket: order:assigned (rider accepté) ────────────────────────────────
@@ -350,6 +408,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
         ready: state.ready.where((o) => o.id != orderId).toList(),
         delivering: state.delivering.where((o) => o.id != orderId).toList(),
       );
+      _ensurePolling();
     } else {
       _moveOrder(orderId, updated);
     }
@@ -409,6 +468,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       delivering: newDelivering,
       isLoading: false,
     );
+    _ensurePolling();
   }
 }
 

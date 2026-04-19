@@ -3,11 +3,18 @@ import '../constants/api_constants.dart';
 
 class SocketService {
   io.Socket? _socket;
+  String? _userId;
 
   bool get isConnected => _socket?.connected ?? false;
+  String? get socketId => _socket?.id;
 
-  void connect(String accessToken) {
-    if (_socket != null && _socket!.connected) return;
+  void connect(String accessToken, {String? userId}) {
+    _userId = userId;
+    if (_socket != null && _socket!.connected) {
+      // Already connected → re-emit join in case userId changed.
+      _emitJoin();
+      return;
+    }
 
     _socket = io.io(
       ApiConstants.wsUrl,
@@ -22,34 +29,48 @@ class SocketService {
     );
 
     _socket!.onConnect((_) {
-      assert(() {
-        // ignore: avoid_print
-        print('[Socket] Connected as cook');
-        return true;
-      }());
+      // ignore: avoid_print
+      print('🔌 [Pro] Socket connected, socketId=${_socket?.id}');
+      _emitJoin();
+    });
+
+    _socket!.onAny((event, data) {
+      // ignore: avoid_print
+      print('📨 [Pro] Event: $event, data: $data');
     });
 
     _socket!.onDisconnect((_) {
-      assert(() {
-        // ignore: avoid_print
-        print('[Socket] Disconnected');
-        return true;
-      }());
+      // ignore: avoid_print
+      print('🔌 [Pro] Socket disconnected');
+    });
+
+    _socket!.onConnectError((err) {
+      // ignore: avoid_print
+      print('❌ [Pro] Connect error: $err');
     });
 
     _socket!.onError((data) {
-      assert(() {
-        // ignore: avoid_print
-        print('[Socket] Error: $data');
-        return true;
-      }());
+      // ignore: avoid_print
+      print('❌ [Pro] Socket error: $data');
     });
+  }
+
+  void _emitJoin() {
+    if (_socket == null) return;
+    final payload = <String, dynamic>{
+      'userId': _userId,
+      'role': 'COOK',
+    };
+    // ignore: avoid_print
+    print('🔌 [Pro] emit join $payload');
+    _socket!.emit('join', payload);
   }
 
   void disconnect() {
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
+    _userId = null;
   }
 
   void on(String event, void Function(dynamic) callback) {

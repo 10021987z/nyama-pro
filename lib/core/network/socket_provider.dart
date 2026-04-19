@@ -10,7 +10,8 @@ final socketServiceProvider = Provider<SocketService>((ref) {
     if (next.isAuthenticated) {
       final token = await SecureStorage.getAccessToken();
       if (token != null) {
-        service.connect(token);
+        final userId = next.user?.id ?? await SecureStorage.getUserId();
+        service.connect(token, userId: userId);
       }
     } else {
       service.disconnect();

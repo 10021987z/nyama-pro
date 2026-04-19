@@ -141,23 +141,32 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   }
 
   /// Slide horizontal 300ms à l'entrée d'une carte dans une section.
-  /// La key contient le nom de la section : quand une commande change de
-  /// section (ex. pending → preparing), le widget est remonté et l'animation
-  /// rejoue, donnant l'impression d'un "slide" depuis l'orange vers le jaune.
+  ///
+  /// - Le widget extérieur porte une `ValueKey(order.id)` STABLE (pas d'index,
+  ///   pas de status) : c'est ce que Flutter utilise pour diff la liste et
+  ///   conserver correctement les States entre rebuilds.
+  /// - La clé passée à `.animate(...)` inclut `status` + `section` :
+  ///   lorsqu'une commande change de section (pending → preparing), Animate
+  ///   considère que c'est un nouveau morceau d'animation et rejoue le slide
+  ///   horizontal, donnant la sensation d'un "saut" d'une section à l'autre.
   Widget _animatedSlot({
     required String section,
     required String orderId,
+    required String status,
     required Widget child,
   }) {
-    return child
-        .animate(key: ValueKey('slot-$section-$orderId'))
-        .slideX(
-          begin: 0.35,
-          end: 0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-        )
-        .fadeIn(duration: const Duration(milliseconds: 220));
+    return KeyedSubtree(
+      key: ValueKey(orderId),
+      child: child
+          .animate(key: ValueKey('slot-$section-$orderId-$status'))
+          .slideX(
+            begin: 1.5,
+            end: 0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          )
+          .fadeIn(duration: const Duration(milliseconds: 220)),
+    );
   }
 
   /// Enveloppe une carte avec Hero + GestureDetector pour ouvrir le détail.
@@ -291,6 +300,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     .map((o) => _animatedSlot(
                                           section: 'new',
                                           orderId: o.id,
+                                          status: o.status,
                                           child: _openable(
                                             o,
                                             _NewOrderCard(
@@ -323,6 +333,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     .map((o) => _animatedSlot(
                                           section: 'preparing',
                                           orderId: o.id,
+                                          status: o.status,
                                           child: _openable(
                                             o,
                                             _PreparingCard(
@@ -353,6 +364,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     .map((o) => _animatedSlot(
                                           section: 'ready',
                                           orderId: o.id,
+                                          status: o.status,
                                           child: _openable(
                                             o,
                                             _ReadyCard(order: o),
@@ -386,6 +398,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     onCard: (o) => _animatedSlot(
                                       section: 'delivering',
                                       orderId: o.id,
+                                      status: o.status,
                                       child: _openable(
                                         o,
                                         _DeliveringCard(order: o),
