@@ -196,6 +196,128 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     );
   }
 
+  // ── Socket: order:assigned (rider accepté) ────────────────────────────────
+
+  /// Traite un payload `order:assigned` : bascule la commande en "En livraison"
+  /// et stocke l'objet rider reçu. Accepte plusieurs formes :
+  ///   { orderId, rider: {...} }
+  ///   { order: {...}, rider: {...} }
+  ///   { id, riderId, rider: {...} }
+  void handleAssigned(Map data) {
+    if (!mounted) return;
+    print('[PROVIDER] handleAssigned data=$data');
+
+    // Parse orderId
+    final orderId = (data['orderId'] ??
+            data['id'] ??
+            (data['order'] is Map ? data['order']['id'] : null) ??
+            (data['order'] is Map ? data['order']['_id'] : null))
+        ?.toString();
+    if (orderId == null || orderId.isEmpty) {
+      print('[PROVIDER] handleAssigned missing orderId');
+      return;
+    }
+
+    // Parse rider
+    final riderRaw = data['rider'] ??
+        data['driver'] ??
+        (data['order'] is Map ? data['order']['rider'] : null);
+    RiderInfo? rider;
+    if (riderRaw is Map) {
+      rider = RiderInfo.fromJson(Map<String, dynamic>.from(riderRaw));
+    }
+
+    final existing = _findOrder(orderId);
+    CookOrderModel updated;
+    if (existing != null) {
+      updated = existing.copyWith(
+        status: 'assigned',
+        assignedAt: DateTime.now(),
+        rider: rider ?? existing.rider,
+        deliveryStage: 'en_route_restaurant',
+        deliveryStageAt: DateTime.now(),
+      );
+    } else if (data['order'] is Map) {
+      // Si l'order complet est fourni, on le parse.
+      updated = CookOrderModel.fromJson(
+              Map<String, dynamic>.from(data['order'] as Map))
+          .copyWith(
+        status: 'assigned',
+        assignedAt: DateTime.now(),
+        rider: rider,
+        deliveryStage: 'en_route_restaurant',
+        deliveryStageAt: DateTime.now(),
+      );
+    } else {
+      // Fallback minimal — on rafraîchit depuis le backend en arrière-plan.
+      updated = _buildFallback(orderId, 'assigned').copyWith(
+        rider: rider,
+        deliveryStage: 'en_route_restaurant',
+        deliveryStageAt: DateTime.now(),
+      );
+      Future.microtask(refresh);
+    }
+
+    _moveOrder(orderId, updated);
+  }
+
+  // ── Socket: delivery:status (étape de livraison) ──────────────────────────
+
+  /// Met à jour l'étape et/ou le label FR du badge status dynamique.
+  /// Payload : { orderId, stage, statusLabel?, updatedAt? }
+  void handleDeliveryStatus(Map data) {
+    if (!mounted) return;
+    print('[PROVIDER] handleDeliveryStatus data=$data');
+    final orderId = (data['orderId'] ?? data['id'])?.toString();
+    if (orderId == null) return;
+
+    final stage = (data['stage'] ??
+            data['deliveryStage'] ??
+            data['status'] ??
+            data['subStatus'])
+        ?.toString()
+        .toLowerCase();
+    final label = (data['statusLabel'] ??
+            data['label'] ??
+            data['deliveryStatusLabel'])
+        ?.toString();
+    DateTime? stageAt;
+    final at = data['updatedAt'] ?? data['stageAt'] ?? data['at'];
+    if (at is String) stageAt = DateTime.tryParse(at);
+
+    final existing = _findOrder(orderId);
+    if (existing == null) {
+      // commande inconnue → on déclenche un refresh
+      Future.microtask(refresh);
+      return;
+    }
+
+    // Si on passe en "en_route_client" on synchronise le status "delivering".
+    String? newStatus;
+    if (stage != null) {
+      if (stage.contains('en_route_client') ||
+          stage.contains('to_client') ||
+          stage == 'delivering' ||
+          stage == 'picked_up' ||
+          stage == 'pickedup') {
+        newStatus = 'delivering';
+      } else if (stage.contains('at_client') || stage == 'arrived') {
+        newStatus = 'delivering';
+      }
+    }
+
+    final updated = existing.copyWith(
+      status: newStatus ?? existing.status,
+      pickedUpAt: (newStatus == 'delivering' && existing.pickedUpAt == null)
+          ? DateTime.now()
+          : existing.pickedUpAt,
+      deliveryStage: stage ?? existing.deliveryStage,
+      deliveryStatusLabel: label ?? existing.deliveryStatusLabel,
+      deliveryStageAt: stageAt ?? DateTime.now(),
+    );
+    _moveOrder(orderId, updated);
+  }
+
   // ── Socket: status update ─────────────────────────────────────────────────
 
   void updateOrderStatus(String orderId, String rawStatus) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/network/socket_provider.dart';
 import '../../../core/utils/fcfa_formatter.dart';
@@ -20,7 +21,7 @@ import 'order_detail_screen.dart';
 const _bgNew = Color(0xFFFFF1E3); // orange très clair
 const _bgPreparing = Color(0xFFFFF8DB); // jaune très clair
 const _bgReady = Color(0xFFE6F4EA); // vert très clair
-const _bgDelivering = Color(0xFFE4EEFB); // bleu très clair
+const _bgDelivering = Color(0xFFEFF6FF); // bleu très clair (#EFF6FF)
 
 class OrdersScreen extends ConsumerStatefulWidget {
   const OrdersScreen({super.key});
@@ -84,8 +85,33 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       if (!mounted || data is! Map) return;
       final id = (data['orderId'] ?? data['id']) as String?;
       final status = (data['status'] ?? data['newStatus']) as String?;
-      if (id == null || status == null) return;
-      ref.read(cookOrdersProvider.notifier).updateOrderStatus(id, status);
+      if (id != null && status != null) {
+        ref.read(cookOrdersProvider.notifier).updateOrderStatus(id, status);
+      }
+      // Refresh général de la commande pour récupérer les changements côté API
+      // (rider assigné, infos updated, etc.)
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) ref.read(cookOrdersProvider.notifier).refresh();
+      });
+    });
+
+    // Nouveau : rider accepté → bascule en "En livraison" + stocke rider
+    socket.on('order:assigned', (data) {
+      print('[SOCKET] order:assigned received: $data');
+      if (!mounted || data is! Map) return;
+      ref
+          .read(cookOrdersProvider.notifier)
+          .handleAssigned(Map<String, dynamic>.from(data));
+      SoundService.playSuccessSound();
+    });
+
+    // Nouveau : mise à jour de l'étape de livraison en temps réel
+    socket.on('delivery:status', (data) {
+      print('[SOCKET] delivery:status received: $data');
+      if (!mounted || data is! Map) return;
+      ref
+          .read(cookOrdersProvider.notifier)
+          .handleDeliveryStatus(Map<String, dynamic>.from(data));
     });
   }
 
@@ -97,6 +123,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       final socket = ref.read(socketServiceProvider);
       socket.off('order:new');
       socket.off('order:status');
+      socket.off('order:assigned');
+      socket.off('delivery:status');
     } catch (_) {}
     super.dispose();
   }
@@ -333,7 +361,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                     .toList(),
                           ),
                           const SizedBox(height: 12),
-                          // ── D. EN LIVRAISON (pliable) ────────────────
+                          // ── D. EN LIVRAISON (pliable, sous-sections) ─
                           _SectionShell(
                             backgroundColor: _bgDelivering,
                             title: 'En cours de livraison',
@@ -353,16 +381,17 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                           'Aucune commande en livraison',
                                     ),
                                   ]
-                                : delivering
-                                    .map((o) => _animatedSlot(
-                                          section: 'delivering',
-                                          orderId: o.id,
-                                          child: _openable(
-                                            o,
-                                            _DeliveringCard(order: o),
-                                          ),
-                                        ))
-                                    .toList(),
+                                : _buildDeliveringStages(
+                                    delivering,
+                                    onCard: (o) => _animatedSlot(
+                                      section: 'delivering',
+                                      orderId: o.id,
+                                      child: _openable(
+                                        o,
+                                        _DeliveringCard(order: o),
+                                      ),
+                                    ),
+                                  ),
                           ),
                           const SizedBox(height: 20),
                         ],
@@ -461,6 +490,59 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         ),
       );
     }
+  }
+
+  /// Regroupe les commandes en livraison par étape et construit la liste
+  /// avec des en-têtes de sous-section (Vers restaurant / Chez restaurant /
+  /// En route / Arrivé client).
+  List<Widget> _buildDeliveringStages(
+    List<CookOrderModel> delivering, {
+    required Widget Function(CookOrderModel) onCard,
+  }) {
+    const stageOrder = [
+      'en_route_restaurant',
+      'at_restaurant',
+      'en_route_client',
+      'at_client',
+    ];
+    const stageLabels = {
+      'en_route_restaurant': 'Vers restaurant',
+      'at_restaurant': 'Chez restaurant',
+      'en_route_client': 'En route',
+      'at_client': 'Arrivé client',
+    };
+    const stageIcons = {
+      'en_route_restaurant': Icons.directions_bike_rounded,
+      'at_restaurant': Icons.store_mall_directory_rounded,
+      'en_route_client': Icons.local_shipping_rounded,
+      'at_client': Icons.flag_rounded,
+    };
+
+    final grouped = <String, List<CookOrderModel>>{
+      for (final s in stageOrder) s: [],
+    };
+    for (final o in delivering) {
+      final key = o.deliveryStageKey;
+      (grouped[key] ?? grouped['en_route_restaurant']!).add(o);
+    }
+
+    final widgets = <Widget>[];
+    var first = true;
+    for (final stage in stageOrder) {
+      final orders = grouped[stage] ?? const [];
+      if (orders.isEmpty) continue;
+      if (!first) widgets.add(const SizedBox(height: 6));
+      first = false;
+      widgets.add(_DeliveringStageHeader(
+        label: stageLabels[stage]!,
+        icon: stageIcons[stage]!,
+        count: orders.length,
+      ));
+      for (final o in orders) {
+        widgets.add(onCard(o));
+      }
+    }
+    return widgets;
   }
 
   /// Renvoie un message lisible pour l'utilisateur :
@@ -1573,8 +1655,7 @@ class _DeliveringCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusLabel =
-        order.isPickedUp ? 'Livreur en route' : 'Livreur en chemin';
+    const blue = Color(0xFF2563EB);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1603,25 +1684,11 @@ class _DeliveringCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  statusLabel.toUpperCase(),
-                  style: const TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 10,
-                    letterSpacing: 0.5,
-                    color: Color(0xFF2563EB),
-                  ),
-                ),
+              // Badge dynamique : utilise le label FR envoyé par le backend
+              Expanded(
+                child: _DeliveryStatusBadge(order: order),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 order.clientName,
                 style: const TextStyle(
@@ -1633,97 +1700,441 @@ class _DeliveringCard extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 4),
+          // Timeline compacte dédiée livraison : dot + label + temps écoulé
+          _DeliveryStageTimeline(order: order),
           const SizedBox(height: 10),
           if (order.rider != null) _RiderTile(rider: order.rider!),
           const SizedBox(height: 10),
           CompactOrderTimeline(currentStep: order.compactTimelineStep),
+          const SizedBox(height: 2),
+          Container(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              order.timeInStage,
+              style: const TextStyle(
+                fontFamily: 'NunitoSans',
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: blue,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
+/// Badge statut de livraison dynamique (texte FR) — se met à jour en live
+/// quand `order.deliveryStatusLabel` / `order.deliveryStage` changent.
+class _DeliveryStatusBadge extends StatelessWidget {
+  final CookOrderModel order;
+  const _DeliveryStatusBadge({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2563EB);
+    final label = order.deliveryStageLabel;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        overflow: TextOverflow.ellipsis,
+        maxLines: 1,
+        style: const TextStyle(
+          fontFamily: 'Montserrat',
+          fontWeight: FontWeight.w800,
+          fontSize: 10,
+          letterSpacing: 0.5,
+          color: blue,
+        ),
+      ),
+    );
+  }
+}
+
+/// Mini timeline livraison (4 dots) : Vers restaurant · Chez restaurant ·
+/// En route · Arrivé client. Met en surbrillance l'étape courante.
+class _DeliveryStageTimeline extends StatelessWidget {
+  final CookOrderModel order;
+  const _DeliveryStageTimeline({required this.order});
+
+  static const _stages = [
+    'en_route_restaurant',
+    'at_restaurant',
+    'en_route_client',
+    'at_client',
+  ];
+  static const _shortLabels = {
+    'en_route_restaurant': 'Vers resto',
+    'at_restaurant': 'Chez resto',
+    'en_route_client': 'En route',
+    'at_client': 'Arrivé',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2563EB);
+    final currentIdx = _stages.indexOf(order.deliveryStageKey);
+    return Row(
+      children: [
+        for (int i = 0; i < _stages.length; i++) ...[
+          _Dot(active: i <= currentIdx && currentIdx >= 0, color: blue),
+          const SizedBox(width: 4),
+          Text(
+            _shortLabels[_stages[i]]!,
+            style: TextStyle(
+              fontFamily: 'NunitoSans',
+              fontSize: 9,
+              fontWeight:
+                  i == currentIdx ? FontWeight.w800 : FontWeight.w600,
+              color: i <= currentIdx && currentIdx >= 0
+                  ? blue
+                  : AppColors.textTertiary,
+            ),
+          ),
+          if (i != _stages.length - 1) ...[
+            const SizedBox(width: 4),
+            Expanded(
+              child: Container(
+                height: 1.5,
+                color: i < currentIdx
+                    ? blue.withValues(alpha: 0.6)
+                    : AppColors.textTertiary.withValues(alpha: 0.2),
+              ),
+            ),
+            const SizedBox(width: 4),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  final bool active;
+  final Color color;
+  const _Dot({required this.active, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: active ? color : Colors.transparent,
+        border: Border.all(
+          color: active ? color : color.withValues(alpha: 0.4),
+          width: 1.6,
+        ),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+/// En-tête d'une sous-section d'étape de livraison (Vers restaurant, etc.)
+class _DeliveringStageHeader extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final int count;
+  const _DeliveringStageHeader({
+    required this.label,
+    required this.icon,
+    required this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2563EB);
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, top: 4, bottom: 2),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: blue),
+          const SizedBox(width: 6),
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              fontFamily: 'Montserrat',
+              fontWeight: FontWeight.w800,
+              fontSize: 10,
+              letterSpacing: 0.8,
+              color: blue,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                fontFamily: 'SpaceMono',
+                fontWeight: FontWeight.w700,
+                fontSize: 10,
+                color: blue,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tuile rider enrichie : avatar (photo ou initiales), nom, véhicule,
+/// boutons Appeler + Message.
 class _RiderTile extends StatelessWidget {
   final RiderInfo rider;
   const _RiderTile({required this.rider});
 
   @override
   Widget build(BuildContext context) {
+    const blue = Color(0xFF2563EB);
+    final hasPhone = rider.phone != null && rider.phone!.trim().isNotEmpty;
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF2563EB).withValues(alpha: 0.08),
+        color: blue.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
+      child: Column(
         children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: const Color(0xFF2563EB).withValues(alpha: 0.15),
-            backgroundImage: rider.photoUrl != null
-                ? NetworkImage(rider.photoUrl!)
-                : null,
-            child: rider.photoUrl == null
-                ? const Icon(Icons.two_wheeler_rounded,
-                    color: Color(0xFF2563EB), size: 18)
-                : null,
+          Row(
+            children: [
+              _RiderAvatar(rider: rider),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      rider.name,
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        if (rider.vehicleLabel != null)
+                          Flexible(
+                            child: Text(
+                              rider.vehicleLabel!,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'SpaceMono',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          )
+                        else if (rider.etaMin != null)
+                          Text(
+                            'ETA ${rider.etaMin} min',
+                            style: const TextStyle(
+                              fontFamily: 'NunitoSans',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textSecondary,
+                            ),
+                          )
+                        else
+                          const Text(
+                            'Livreur assigné',
+                            style: TextStyle(
+                              fontFamily: 'NunitoSans',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  rider.name,
-                  style: const TextStyle(
-                    fontFamily: 'NunitoSans',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _RiderActionButton(
+                  icon: Icons.call_rounded,
+                  label: 'Appeler le livreur',
+                  primary: true,
+                  onTap: hasPhone
+                      ? () => _callRider(context, rider.phone!)
+                      : null,
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  rider.etaMin != null
-                      ? 'ETA ${rider.etaMin} min'
-                      : 'Livreur assigné',
-                  style: const TextStyle(
-                    fontFamily: 'NunitoSans',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                  ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _RiderActionButton(
+                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Message',
+                  primary: false,
+                  onTap: () => _openRiderChat(context),
                 ),
-              ],
-            ),
-          ),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2563EB),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.moped_rounded, color: Colors.white, size: 14),
-                SizedBox(width: 4),
-                Text(
-                  'EN ROUTE',
-                  style: TextStyle(
-                    fontFamily: 'Montserrat',
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _callRider(BuildContext context, String rawPhone) async {
+    final phone = rawPhone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$phone');
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.error,
+            content: Text('Impossible d\'appeler $phone'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.error,
+          content: Text('Erreur appel : $e'),
+        ),
+      );
+    }
+  }
+
+  void _openRiderChat(BuildContext context) {
+    // Placeholder : pas encore de chat dédié rider côté Pro.
+    // Navigue vers la liste des commandes (ou affiche une snackbar).
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Messagerie livreur — bientôt disponible'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+}
+
+class _RiderAvatar extends StatelessWidget {
+  final RiderInfo rider;
+  const _RiderAvatar({required this.rider});
+
+  @override
+  Widget build(BuildContext context) {
+    const palette = [
+      Color(0xFF2563EB),
+      Color(0xFF9333EA),
+      Color(0xFFEA580C),
+      Color(0xFF059669),
+      Color(0xFFDC2626),
+      Color(0xFF0891B2),
+    ];
+    final seed = rider.id?.hashCode ?? rider.name.hashCode;
+    final bg = palette[seed.abs() % palette.length];
+    final hasPhoto =
+        rider.photoUrl != null && rider.photoUrl!.trim().isNotEmpty;
+
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: bg,
+        image: hasPhoto
+            ? DecorationImage(
+                image: NetworkImage(rider.photoUrl!), fit: BoxFit.cover)
+            : null,
+      ),
+      alignment: Alignment.center,
+      child: hasPhoto
+          ? null
+          : Text(
+              rider.initials,
+              style: const TextStyle(
+                fontFamily: 'Montserrat',
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: 0.5,
+              ),
+            ),
+    );
+  }
+}
+
+class _RiderActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool primary;
+  final VoidCallback? onTap;
+  const _RiderActionButton({
+    required this.icon,
+    required this.label,
+    required this.primary,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const blue = Color(0xFF2563EB);
+    final disabled = onTap == null;
+    final bg = primary
+        ? (disabled ? blue.withValues(alpha: 0.4) : blue)
+        : Colors.white;
+    final fg = primary ? Colors.white : blue;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(10),
+          border: primary ? null : Border.all(color: blue, width: 1.4),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: fg),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'Montserrat',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: fg,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
