@@ -322,7 +322,10 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
   // ── Socket: delivery:status (étape de livraison) ──────────────────────────
 
   /// Met à jour l'étape et/ou le label FR du badge status dynamique.
-  /// Payload : { orderId, stage, statusLabel?, updatedAt? }
+  /// Payload backend (LOT 1) : { deliveryId, orderId, status, rider? }
+  /// où `status` ∈ ASSIGNED | ARRIVED_RESTAURANT | PICKED_UP |
+  /// ARRIVED_CLIENT | DELIVERED. On reste tolérant aux anciens formats
+  /// (stage, deliveryStage, subStatus, statusLabel).
   void handleDeliveryStatus(Map data) {
     if (!mounted) return;
     print('[PROVIDER] handleDeliveryStatus data=$data');
@@ -343,6 +346,19 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     final at = data['updatedAt'] ?? data['stageAt'] ?? data['at'];
     if (at is String) stageAt = DateTime.tryParse(at);
 
+    // DELIVERED arrive aussi via delivery:status — on retire la card de toutes
+    // les sections actives (elle basculera en Historique au prochain fetch).
+    if (stage == 'delivered') {
+      state = state.copyWith(
+        pending: state.pending.where((o) => o.id != orderId).toList(),
+        preparing: state.preparing.where((o) => o.id != orderId).toList(),
+        ready: state.ready.where((o) => o.id != orderId).toList(),
+        delivering: state.delivering.where((o) => o.id != orderId).toList(),
+      );
+      _ensurePolling();
+      return;
+    }
+
     final existing = _findOrder(orderId);
     if (existing == null) {
       // commande inconnue → on déclenche un refresh
@@ -350,18 +366,36 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       return;
     }
 
-    // Si on passe en "en_route_client" on synchronise le status "delivering".
+    // Mapping `delivery.status` → `order.status` côté UI :
+    //  ASSIGNED / ARRIVED_RESTAURANT → "assigned"  (section "Vers resto" / "Chez resto")
+    //  PICKED_UP / ARRIVED_CLIENT    → "delivering" (section "En route" / "Arrivé")
     String? newStatus;
     if (stage != null) {
       if (stage.contains('en_route_client') ||
           stage.contains('to_client') ||
+          stage.contains('at_client') ||
+          stage.contains('arrived_client') ||
           stage == 'delivering' ||
           stage == 'picked_up' ||
           stage == 'pickedup') {
         newStatus = 'delivering';
-      } else if (stage.contains('at_client') || stage == 'arrived') {
+      } else if (stage == 'arrived' || stage == 'arrivedclient') {
         newStatus = 'delivering';
+      } else if (stage.contains('arrived_restaurant') ||
+          stage.contains('at_restaurant') ||
+          stage == 'assigned') {
+        newStatus = 'assigned';
       }
+    }
+
+    // Hydrate le rider depuis le payload si présent (objet `rider` ou flat).
+    RiderInfo? riderFromPayload;
+    final riderRaw = data['rider'] ?? data['driver'];
+    if (riderRaw is Map) {
+      try {
+        riderFromPayload =
+            RiderInfo.fromJson(Map<String, dynamic>.from(riderRaw));
+      } catch (_) {}
     }
 
     final updated = existing.copyWith(
@@ -369,6 +403,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       pickedUpAt: (newStatus == 'delivering' && existing.pickedUpAt == null)
           ? DateTime.now()
           : existing.pickedUpAt,
+      rider: riderFromPayload ?? existing.rider,
       deliveryStage: stage ?? existing.deliveryStage,
       deliveryStatusLabel: label ?? existing.deliveryStatusLabel,
       deliveryStageAt: stageAt ?? DateTime.now(),
@@ -378,11 +413,39 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
 
   // ── Socket: status update ─────────────────────────────────────────────────
 
-  void updateOrderStatus(String orderId, String rawStatus) {
+  void updateOrderStatus(String orderId, String rawStatus,
+      {Map<String, dynamic>? payload}) {
     if (!mounted) return;
+    final status = rawStatus.toLowerCase();
+
+    // DELIVERED / CANCELLED → sortie des sections actives (va en Historique).
+    if (status == 'delivered' || status == 'cancelled') {
+      state = state.copyWith(
+        pending: state.pending.where((o) => o.id != orderId).toList(),
+        preparing: state.preparing.where((o) => o.id != orderId).toList(),
+        ready: state.ready.where((o) => o.id != orderId).toList(),
+        delivering: state.delivering.where((o) => o.id != orderId).toList(),
+      );
+      _ensurePolling();
+      return;
+    }
+
     final order = _findOrder(orderId);
     if (order == null) return;
-    final status = rawStatus.toLowerCase();
+
+    // Le backend LOT 1 enrichit `order:status` avec `deliveryStatus`, `label`
+    // et `rider` (notamment lorsque la màj passe par riders.service).
+    final deliveryRaw = payload?['deliveryStatus']?.toString().toLowerCase();
+    final labelRaw = payload?['label']?.toString() ??
+        payload?['statusLabel']?.toString();
+    RiderInfo? riderFromPayload;
+    final riderRaw = payload?['rider'] ?? payload?['driver'];
+    if (riderRaw is Map) {
+      try {
+        riderFromPayload =
+            RiderInfo.fromJson(Map<String, dynamic>.from(riderRaw));
+      } catch (_) {}
+    }
 
     final updated = order.copyWith(
       status: status,
@@ -399,19 +462,13 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
                   order.pickedUpAt == null
               ? DateTime.now()
               : null,
+      rider: riderFromPayload ?? order.rider,
+      deliveryStage: deliveryRaw ?? order.deliveryStage,
+      deliveryStatusLabel: labelRaw ?? order.deliveryStatusLabel,
+      deliveryStageAt:
+          deliveryRaw != null ? DateTime.now() : order.deliveryStageAt,
     );
-
-    if (status == 'delivered' || status == 'cancelled') {
-      state = state.copyWith(
-        pending: state.pending.where((o) => o.id != orderId).toList(),
-        preparing: state.preparing.where((o) => o.id != orderId).toList(),
-        ready: state.ready.where((o) => o.id != orderId).toList(),
-        delivering: state.delivering.where((o) => o.id != orderId).toList(),
-      );
-      _ensurePolling();
-    } else {
-      _moveOrder(orderId, updated);
-    }
+    _moveOrder(orderId, updated);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

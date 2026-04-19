@@ -86,7 +86,11 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       final id = (data['orderId'] ?? data['id']) as String?;
       final status = (data['status'] ?? data['newStatus']) as String?;
       if (id != null && status != null) {
-        ref.read(cookOrdersProvider.notifier).updateOrderStatus(id, status);
+        ref.read(cookOrdersProvider.notifier).updateOrderStatus(
+              id,
+              status,
+              payload: Map<String, dynamic>.from(data),
+            );
       }
       // Refresh général de la commande pour récupérer les changements côté API
       // (rider assigné, infos updated, etc.)
