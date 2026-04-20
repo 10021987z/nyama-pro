@@ -41,16 +41,52 @@ class OrderItemModel {
     required this.subtotalXaf,
   });
 
-  factory OrderItemModel.fromJson(Map<String, dynamic> json) => OrderItemModel(
-        menuItemName: json['menuItemName'] as String? ??
-            json['name'] as String? ??
-            'Article',
-        quantity: (json['quantity'] as num?)?.toInt() ?? 1,
-        unitPriceXaf: (json['unitPriceXaf'] as num?)?.toInt() ??
-            (json['priceXaf'] as num?)?.toInt() ??
-            0,
-        subtotalXaf: (json['subtotalXaf'] as num?)?.toInt() ?? 0,
-      );
+  factory OrderItemModel.fromJson(Map<String, dynamic> json) {
+    final nested = json['menuItem'] as Map<String, dynamic>?;
+    final rawName = (nested?['name'] as String?) ??
+        (json['menuItemName'] as String?) ??
+        (json['name'] as String?);
+    final menuItemId =
+        (json['menuItemId'] ?? nested?['id'] ?? nested?['_id'])?.toString();
+
+    String resolvedName;
+    if (rawName != null && rawName.trim().isNotEmpty && !_looksLikeIdOrSlug(rawName)) {
+      resolvedName = rawName.trim();
+    } else if (menuItemId != null && menuItemId.isNotEmpty) {
+      final shortId =
+          menuItemId.length >= 6 ? menuItemId.substring(0, 6) : menuItemId;
+      resolvedName = 'Plat #$shortId';
+    } else {
+      resolvedName = 'Article';
+    }
+
+    return OrderItemModel(
+      menuItemName: resolvedName,
+      quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+      unitPriceXaf: (json['unitPriceXaf'] as num?)?.toInt() ??
+          (nested?['priceXaf'] as num?)?.toInt() ??
+          (json['priceXaf'] as num?)?.toInt() ??
+          0,
+      subtotalXaf: (json['subtotalXaf'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// Heuristic — value is a UUID, raw id, or slug ("mi-ndole-complet")
+  /// rather than a human-readable plate name.
+  static bool _looksLikeIdOrSlug(String s) {
+    final t = s.trim();
+    if (t.isEmpty) return true;
+    // UUID v4 pattern (with or without dashes).
+    final uuid = RegExp(r'^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$');
+    if (uuid.hasMatch(t)) return true;
+    // Pure hex / pure id-like (no spaces, all lowercase + dashes, length > 8).
+    if (!t.contains(' ') &&
+        t.length > 8 &&
+        RegExp(r'^[a-z0-9_\-]+$').hasMatch(t)) {
+      return true;
+    }
+    return false;
+  }
 
   String get label => '$quantity× $menuItemName';
 }
