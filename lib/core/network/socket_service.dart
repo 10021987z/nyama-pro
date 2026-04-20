@@ -16,15 +16,18 @@ class SocketService {
       return;
     }
 
+    // ignore: avoid_print
+    print('🔌 [Pro] Connecting to ${ApiConstants.wsUrl}');
     _socket = io.io(
       ApiConstants.wsUrl,
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .setAuth({'token': accessToken})
-          .enableAutoConnect()
+          .setExtraHeaders({'Authorization': 'Bearer $accessToken'})
+          .disableAutoConnect()
           .enableReconnection()
-          .setReconnectionAttempts(10)
-          .setReconnectionDelay(3000)
+          .setReconnectionAttempts(999)
+          .setReconnectionDelay(2000)
           .build(),
     );
 
@@ -53,6 +56,8 @@ class SocketService {
       // ignore: avoid_print
       print('❌ [Pro] Socket error: $data');
     });
+
+    _socket!.connect();
   }
 
   void _emitJoin() {
