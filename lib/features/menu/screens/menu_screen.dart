@@ -279,11 +279,20 @@ class _DishCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOut,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: dish.isAvailable
+              ? Colors.white
+              : const Color(0xFFFFF3EF), // léger rouge-creme quand indispo
           borderRadius: BorderRadius.circular(16),
+          border: dish.isAvailable
+              ? null
+              : Border.all(
+                  color: AppColors.error.withValues(alpha: 0.25),
+                  width: 1),
           boxShadow: const [
             BoxShadow(
                 color: AppColors.cardShadow,
