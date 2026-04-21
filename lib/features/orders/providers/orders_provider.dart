@@ -13,6 +13,12 @@ class CookOrdersState {
   final bool isLoading;
   final String? error;
 
+  /// Dernier event DELIVERED non-consommé par l'UI (pour afficher un toast).
+  /// Incrémenté à chaque nouveau DELIVERED traité — l'UI observe `deliveredTick`
+  /// et lit `lastDelivered` pour afficher le SnackBar.
+  final int deliveredTick;
+  final DeliveredEvent? lastDelivered;
+
   const CookOrdersState({
     this.pending = const [],
     this.preparing = const [],
@@ -20,6 +26,8 @@ class CookOrdersState {
     this.delivering = const [],
     this.isLoading = false,
     this.error,
+    this.deliveredTick = 0,
+    this.lastDelivered,
   });
 
   CookOrdersState copyWith({
@@ -29,6 +37,8 @@ class CookOrdersState {
     List<CookOrderModel>? delivering,
     bool? isLoading,
     String? error,
+    int? deliveredTick,
+    DeliveredEvent? lastDelivered,
   }) =>
       CookOrdersState(
         pending: pending ?? this.pending,
@@ -37,6 +47,8 @@ class CookOrdersState {
         delivering: delivering ?? this.delivering,
         isLoading: isLoading ?? this.isLoading,
         error: error,
+        deliveredTick: deliveredTick ?? this.deliveredTick,
+        lastDelivered: lastDelivered ?? this.lastDelivered,
       );
 
   int get pendingCount => pending.length;
@@ -49,14 +61,57 @@ class CookOrdersState {
       delivering.isEmpty;
 }
 
+/// Event DELIVERED consommé par l'UI pour afficher un toast/SnackBar.
+class DeliveredEvent {
+  final String orderId;
+  final String? riderName;
+  final int? gainFcfa;
+  final String? messageFromBackend;
+  final DateTime at;
+
+  const DeliveredEvent({
+    required this.orderId,
+    this.riderName,
+    this.gainFcfa,
+    this.messageFromBackend,
+    required this.at,
+  });
+}
+
 // ─── Notifier ─────────────────────────────────────────────────────────────────
 
 class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
   final OrdersRepository _repo;
   Timer? _pollTimer;
 
+  /// BUG 1 (DUPLICATION) — Stockage canonique keyed par `order.id`. Toutes
+  /// les opérations (polling, socket, actions UI) font un upsert via
+  /// `_orders[order.id] = order;`. Les sections (pending/preparing/ready/
+  /// delivering) sont dérivées de cette map à chaque notification pour
+  /// garantir qu'une commande ne peut jamais apparaître en double.
+  final Map<String, CookOrderModel> _orders = <String, CookOrderModel>{};
+
+  /// Historique local des commandes livrées (non persisté). Consommé par
+  /// l'écran Historique quand l'API n'a pas encore renvoyé la commande.
+  final Map<String, CookOrderModel> _orderHistory = <String, CookOrderModel>{};
+
   CookOrdersNotifier(this._repo) : super(const CookOrdersState()) {
     refresh();
+  }
+
+  /// Liste de toutes les commandes actives, triée par `createdAt` desc.
+  List<CookOrderModel> get orders {
+    final list = _orders.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
+  }
+
+  /// Historique local (livrées / annulées) — snapshot immutable.
+  List<CookOrderModel> get orderHistory {
+    final list = _orderHistory.values.toList()
+      ..sort((a, b) =>
+          (b.deliveredAt ?? b.createdAt).compareTo(a.deliveredAt ?? a.createdAt));
+    return list;
   }
 
   // ── Load all active orders ─────────────────────────────────────────────────
@@ -65,7 +120,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final all = await _repo.getCookOrders();
-      _categorize(all);
+      _upsertAll(all, replace: true);
     } catch (e) {
       if (!mounted) return;
       state = state.copyWith(
@@ -81,7 +136,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     try {
       final all = await _repo.getCookOrders();
       if (!mounted) return;
-      _categorize(all);
+      _upsertAll(all, replace: true);
     } catch (_) {
       // Silencieux : on ne spamme pas l'UI d'erreurs si l'API flanche en polling.
     }
@@ -128,14 +183,59 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     super.dispose();
   }
 
-  void _categorize(List<CookOrderModel> orders) {
+  // ── Upsert + recompute state ──────────────────────────────────────────────
+
+  /// Upsert une commande unique dans la map, puis recompute l'état.
+  void _upsert(CookOrderModel order) {
+    if (order.id.isEmpty) return;
+
+    // Si la commande est dans un statut terminal, on la retire des actives
+    // et on l'ajoute à l'historique local.
+    if (order.isDelivered || order.isCancelled) {
+      _orders.remove(order.id);
+      _orderHistory[order.id] = order;
+    } else {
+      _orders[order.id] = order;
+    }
+    _emitState();
+  }
+
+  /// Upsert en masse depuis un fetch (polling ou refresh initial).
+  /// Avec `replace: true`, les ids absents du fetch sont purgés de la map
+  /// (la source canonique devient le backend). Les terminaux vont en history.
+  void _upsertAll(List<CookOrderModel> orders, {bool replace = false}) {
+    if (replace) {
+      // On ne conserve que les ids présents dans le fetch.
+      final incomingIds = <String>{};
+      for (final o in orders) {
+        if (o.id.isNotEmpty) incomingIds.add(o.id);
+      }
+      _orders.removeWhere((id, _) => !incomingIds.contains(id));
+    }
+
+    for (final o in orders) {
+      if (o.id.isEmpty) continue;
+      if (o.isDelivered || o.isCancelled) {
+        _orders.remove(o.id);
+        _orderHistory[o.id] = o;
+      } else {
+        // Upsert — dernière occurrence gagne.
+        _orders[o.id] = o;
+      }
+    }
+    _emitState();
+  }
+
+  /// Recalcule les sections dérivées à partir de `_orders` et publie l'état.
+  void _emitState({DeliveredEvent? delivered}) {
     if (!mounted) return;
+
     final pending = <CookOrderModel>[];
     final preparing = <CookOrderModel>[];
     final ready = <CookOrderModel>[];
     final delivering = <CookOrderModel>[];
 
-    for (final o in orders) {
+    for (final o in _orders.values) {
       if (o.isPending) {
         pending.add(o);
       } else if (o.isPreparing) {
@@ -145,11 +245,12 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       } else if (o.isDelivering) {
         delivering.add(o);
       }
+      // isDelivered / isCancelled → exclus des sections actives (en history).
     }
 
-    // Nouvelles commandes : plus récentes en haut
+    // Nouvelles commandes : plus récentes en haut.
     pending.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    // En préparation : plus ancienne d'abord (urgence)
+    // En préparation / ready / delivering : plus ancienne d'abord (urgence).
     preparing.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     ready.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     delivering.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -160,6 +261,9 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       ready: ready,
       delivering: delivering,
       isLoading: false,
+      deliveredTick:
+          delivered != null ? state.deliveredTick + 1 : state.deliveredTick,
+      lastDelivered: delivered ?? state.lastDelivered,
     );
     _ensurePolling();
   }
@@ -172,9 +276,8 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       final updated = await _repo.acceptOrder(orderId);
       if (!mounted) return;
       print('[PROVIDER] accept ok orderId=$orderId → status=preparing');
-      // Met à jour immédiatement l'état local : la carte migre
-      // de pending (orange) → preparing (jaune) et déclenche l'animation.
-      _moveOrder(orderId, updated.copyWith(
+      // Upsert : la commande migre de pending → preparing dans la map.
+      _upsert(updated.copyWith(
         status: 'preparing',
         acceptedAt: DateTime.now(),
       ));
@@ -203,19 +306,15 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       if (needsStartPreparing) {
         await _repo.startPreparing(orderId);
         if (!mounted) return;
-        _moveOrder(
-            orderId,
-            _findOrder(orderId)?.copyWith(status: 'preparing') ??
-                _buildFallback(orderId, 'preparing'));
+        _upsert(_findOrder(orderId)?.copyWith(status: 'preparing') ??
+            _buildFallback(orderId, 'preparing'));
       }
 
       await _repo.markReady(orderId);
       if (!mounted) return;
-      _moveOrder(
-          orderId,
-          _findOrder(orderId)
-                  ?.copyWith(status: 'ready', readyAt: DateTime.now()) ??
-              _buildFallback(orderId, 'ready'));
+      _upsert(_findOrder(orderId)
+              ?.copyWith(status: 'ready', readyAt: DateTime.now()) ??
+          _buildFallback(orderId, 'ready'));
     } catch (e) {
       if (!mounted) return;
       rethrow;
@@ -228,10 +327,8 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     try {
       await _repo.rejectOrder(orderId, reason);
       if (!mounted) return;
-      state = state.copyWith(
-        pending: state.pending.where((o) => o.id != orderId).toList(),
-      );
-      _ensurePolling();
+      _orders.remove(orderId);
+      _emitState();
     } catch (e) {
       if (!mounted) return;
       rethrow;
@@ -240,18 +337,13 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
 
   // ── Socket: add new order ─────────────────────────────────────────────────
 
+  /// Ajoute une commande reçue par socket (`order:new`). Upsert via la map :
+  /// si elle existe déjà (race condition socket + polling), elle est mise à
+  /// jour en place plutôt que dupliquée.
   void addOrder(CookOrderModel order) {
     if (!mounted) return;
-    final exists = state.pending.any((o) => o.id == order.id) ||
-        state.preparing.any((o) => o.id == order.id) ||
-        state.ready.any((o) => o.id == order.id) ||
-        state.delivering.any((o) => o.id == order.id);
-    if (exists) return;
-
-    state = state.copyWith(
-      pending: [order, ...state.pending],
-    );
-    _ensurePolling();
+    if (order.id.isEmpty) return;
+    _upsert(order);
   }
 
   // ── Socket: order:assigned (rider accepté) ────────────────────────────────
@@ -316,7 +408,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       Future.microtask(refresh);
     }
 
-    _moveOrder(orderId, updated);
+    _upsert(updated);
   }
 
   // ── Socket: delivery:status (étape de livraison) ──────────────────────────
@@ -346,16 +438,11 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     final at = data['updatedAt'] ?? data['stageAt'] ?? data['at'];
     if (at is String) stageAt = DateTime.tryParse(at);
 
-    // DELIVERED arrive aussi via delivery:status — on retire la card de toutes
-    // les sections actives (elle basculera en Historique au prochain fetch).
+    // BUG 2 — DELIVERED peut aussi arriver via delivery:status. On retire la
+    // commande des sections actives (push en historique) et on publie un
+    // event DeliveredEvent que l'UI consomme pour afficher le toast.
     if (stage == 'delivered') {
-      state = state.copyWith(
-        pending: state.pending.where((o) => o.id != orderId).toList(),
-        preparing: state.preparing.where((o) => o.id != orderId).toList(),
-        ready: state.ready.where((o) => o.id != orderId).toList(),
-        delivering: state.delivering.where((o) => o.id != orderId).toList(),
-      );
-      _ensurePolling();
+      _handleDelivered(orderId, Map<String, dynamic>.from(data));
       return;
     }
 
@@ -408,7 +495,7 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       deliveryStatusLabel: label ?? existing.deliveryStatusLabel,
       deliveryStageAt: stageAt ?? DateTime.now(),
     );
-    _moveOrder(orderId, updated);
+    _upsert(updated);
   }
 
   // ── Socket: status update ─────────────────────────────────────────────────
@@ -418,15 +505,24 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
     if (!mounted) return;
     final status = rawStatus.toLowerCase();
 
-    // DELIVERED / CANCELLED → sortie des sections actives (va en Historique).
-    if (status == 'delivered' || status == 'cancelled') {
-      state = state.copyWith(
-        pending: state.pending.where((o) => o.id != orderId).toList(),
-        preparing: state.preparing.where((o) => o.id != orderId).toList(),
-        ready: state.ready.where((o) => o.id != orderId).toList(),
-        delivering: state.delivering.where((o) => o.id != orderId).toList(),
-      );
-      _ensurePolling();
+    // BUG 2 — DELIVERED via `order:status` : on retire la commande des
+    // sections actives ET on publie DeliveredEvent (toast).
+    if (status == 'delivered') {
+      _handleDelivered(orderId, payload ?? const {});
+      return;
+    }
+
+    // CANCELLED → sortie des sections actives (va en Historique), pas de toast.
+    if (status == 'cancelled') {
+      final existing = _findOrder(orderId);
+      if (existing != null) {
+        _orders.remove(orderId);
+        _orderHistory[orderId] =
+            existing.copyWith(status: 'cancelled');
+      } else {
+        _orders.remove(orderId);
+      }
+      _emitState();
       return;
     }
 
@@ -468,24 +564,67 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
       deliveryStageAt:
           deliveryRaw != null ? DateTime.now() : order.deliveryStageAt,
     );
-    _moveOrder(orderId, updated);
+    _upsert(updated);
+  }
+
+  // ── DELIVERED handler (central) ───────────────────────────────────────────
+
+  /// BUG 2 — Point central pour DELIVERED (depuis `order:status` ET
+  /// `delivery:status`). Retire la commande des sections actives, pousse
+  /// dans l'historique local et émet un `DeliveredEvent` que l'UI consomme
+  /// pour afficher le toast/SnackBar (listener sur `deliveredTick`).
+  void _handleDelivered(String orderId, Map<String, dynamic> payload) {
+    // Récupère la commande AVANT suppression pour extraire le rider/gain.
+    final existing = _findOrder(orderId);
+
+    // Rider name : payload prioritaire, fallback sur la commande existante.
+    String? riderName;
+    final riderRaw = payload['rider'] ?? payload['driver'];
+    if (riderRaw is Map) {
+      riderName = (riderRaw['name'] ??
+              riderRaw['fullName'] ??
+              riderRaw['displayName'])
+          ?.toString();
+    }
+    riderName ??= existing?.rider?.name;
+
+    // Gain estimé : `cookEarningXaf` / `cookShareXaf` / `cookGainXaf` depuis
+    // le payload, sinon `deliveryFeeXaf` comme proxy.
+    int? gain;
+    final gainRaw = payload['cookEarningXaf'] ??
+        payload['cookShareXaf'] ??
+        payload['cookGainXaf'];
+    if (gainRaw is num) {
+      gain = gainRaw.toInt();
+    }
+    gain ??= existing?.deliveryFeeXaf;
+
+    // Message custom du backend (prioritaire sur le template client-side).
+    final messageFromBackend =
+        (payload['message'] ?? payload['toast'])?.toString();
+
+    // Retire des sections actives et archive dans l'historique local.
+    _orders.remove(orderId);
+    if (existing != null) {
+      _orderHistory[orderId] = existing.copyWith(
+        status: 'delivered',
+      );
+    }
+
+    final event = DeliveredEvent(
+      orderId: orderId,
+      riderName: riderName,
+      gainFcfa: gain,
+      messageFromBackend: messageFromBackend,
+      at: DateTime.now(),
+    );
+
+    _emitState(delivered: event);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  CookOrderModel? _findOrder(String id) {
-    final all = [
-      ...state.pending,
-      ...state.preparing,
-      ...state.ready,
-      ...state.delivering,
-    ];
-    try {
-      return all.firstWhere((o) => o.id == id);
-    } catch (_) {
-      return null;
-    }
-  }
+  CookOrderModel? _findOrder(String id) => _orders[id];
 
   CookOrderModel _buildFallback(String id, String status) => CookOrderModel(
         id: id,
@@ -497,36 +636,6 @@ class CookOrdersNotifier extends StateNotifier<CookOrdersState> {
         createdAt: DateTime.now(),
         acceptedAt: DateTime.now(),
       );
-
-  void _moveOrder(String orderId, CookOrderModel updated) {
-    if (!mounted) return;
-    final newPending =
-        state.pending.where((o) => o.id != orderId).toList();
-    final newPreparing =
-        state.preparing.where((o) => o.id != orderId).toList();
-    final newReady = state.ready.where((o) => o.id != orderId).toList();
-    final newDelivering =
-        state.delivering.where((o) => o.id != orderId).toList();
-
-    if (updated.isPending) {
-      newPending.insert(0, updated);
-    } else if (updated.isPreparing) {
-      newPreparing.add(updated);
-    } else if (updated.isReady) {
-      newReady.add(updated);
-    } else if (updated.isDelivering) {
-      newDelivering.add(updated);
-    }
-
-    state = CookOrdersState(
-      pending: newPending,
-      preparing: newPreparing,
-      ready: newReady,
-      delivering: newDelivering,
-      isLoading: false,
-    );
-    _ensurePolling();
-  }
 }
 
 // ─── Providers ────────────────────────────────────────────────────────────────

@@ -69,9 +69,16 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         if (data is Map<String, dynamic>) payload = data;
         if (data is Map && data['order'] is Map<String, dynamic>) {
           payload = data['order'] as Map<String, dynamic>;
+        } else if (data is Map && data['order'] is Map) {
+          payload = Map<String, dynamic>.from(data['order'] as Map);
+        } else if (data is Map) {
+          payload = Map<String, dynamic>.from(data);
         }
         if (payload == null) return;
         final order = CookOrderModel.fromJson(payload);
+        // BUG 3 : `addOrder` dédoublonne déjà par `id`. Pas de refresh
+        // déclenché ici — sinon la commande pourrait être ré-ajoutée par
+        // un fetch concurrent du polling.
         ref.read(cookOrdersProvider.notifier).addOrder(order);
         // Son + vibration immédiatement — ne dépend plus du diff pending
         SoundService.playNewOrderAlert();
@@ -83,17 +90,34 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     socket.on('order:status', (data) {
       print('[SOCKET] order:status received: $data');
       if (!mounted || data is! Map) return;
-      final id = (data['orderId'] ?? data['id']) as String?;
-      final status = (data['status'] ?? data['newStatus']) as String?;
-      if (id != null && status != null) {
-        ref.read(cookOrdersProvider.notifier).updateOrderStatus(
-              id,
-              status,
-              payload: Map<String, dynamic>.from(data),
-            );
+      final id = (data['orderId'] ?? data['id'])?.toString();
+      final rawStatus = (data['status'] ?? data['newStatus'])?.toString();
+      if (id == null || rawStatus == null) return;
+
+      final normalized = rawStatus.toLowerCase();
+      final notifier = ref.read(cookOrdersProvider.notifier);
+
+      // BUG 2 : DELIVERED via `order:status` — on délègue au provider qui
+      // retire la commande des sections actives et émet un `DeliveredEvent`.
+      // Le toast est affiché par le `ref.listen` dans `build()` (dédup par id).
+      if (normalized == 'delivered') {
+        notifier.updateOrderStatus(
+          id,
+          rawStatus,
+          payload: Map<String, dynamic>.from(data),
+        );
+        return;
       }
+
+      notifier.updateOrderStatus(
+        id,
+        rawStatus,
+        payload: Map<String, dynamic>.from(data),
+      );
+
       // Refresh général de la commande pour récupérer les changements côté API
-      // (rider assigné, infos updated, etc.)
+      // (rider assigné, infos updated, etc.) — sauf pour DELIVERED traité plus
+      // haut.
       Future.delayed(const Duration(milliseconds: 400), () {
         if (mounted) ref.read(cookOrdersProvider.notifier).refresh();
       });
@@ -113,10 +137,51 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     socket.on('delivery:status', (data) {
       print('[SOCKET] delivery:status received: $data');
       if (!mounted || data is! Map) return;
+
+      // BUG 2 : DELIVERED via `delivery:status` — idem, on délègue. Le
+      // provider émet un `DeliveredEvent` consommé par `ref.listen` pour
+      // afficher le SnackBar (dédup par orderId).
       ref
           .read(cookOrdersProvider.notifier)
           .handleDeliveryStatus(Map<String, dynamic>.from(data));
     });
+  }
+
+  /// BUG 2 — Affiche un SnackBar lorsqu'une commande passe en DELIVERED.
+  /// La data vient d'un `DeliveredEvent` publié par `CookOrdersNotifier`.
+  /// Format (si pas de message backend custom) :
+  ///   "Commande #ABCD livrée par Kevin · Gain +320 FCFA".
+  void _showDeliveredToastFromEvent(DeliveredEvent event) {
+    if (!mounted) return;
+
+    final shortId = event.orderId.length >= 6
+        ? event.orderId.substring(0, 6)
+        : event.orderId;
+
+    // Si le backend a fourni son propre message (champ `message`/`toast`),
+    // on l'utilise tel quel. Sinon, template client-side.
+    String text;
+    final backendMsg = event.messageFromBackend?.trim();
+    if (backendMsg != null && backendMsg.isNotEmpty) {
+      text = backendMsg;
+    } else {
+      final buf = StringBuffer('Commande #$shortId livrée');
+      final rider = event.riderName?.trim();
+      buf.write(' par ${rider != null && rider.isNotEmpty ? rider : 'le livreur'}');
+      final gain = event.gainFcfa;
+      if (gain != null && gain > 0) {
+        buf.write(' · Gain +$gain FCFA');
+      }
+      text = buf.toString();
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.success,
+        duration: const Duration(seconds: 4),
+        content: Text(text),
+      ),
+    );
   }
 
   @override
@@ -204,43 +269,16 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       }
       _lastPendingCount = next.pending.length;
 
-      // Son "cha-ching" quand une commande transitionne vers DELIVERED
-      final prevIds = <String>{};
-      if (prev != null) {
-        for (final list in [
-          prev.pending,
-          prev.preparing,
-          prev.ready,
-          prev.delivering,
-        ]) {
-          for (final o in list) {
-            prevIds.add(o.id);
-          }
-        }
-      }
-      final nextIds = <String>{};
-      for (final list in [
-        next.pending,
-        next.preparing,
-        next.ready,
-        next.delivering,
-      ]) {
-        for (final o in list) {
-          nextIds.add(o.id);
-        }
-      }
-      // Les IDs qui étaient dans "delivering" et ont disparu du store
-      // = probablement livrés (ou annulés). On ne jour le son que pour
-      // ceux qui étaient en livraison.
-      if (prev != null) {
-        final deliveredIds = prev.delivering
-            .where((o) => !nextIds.contains(o.id))
-            .map((o) => o.id);
-        for (final id in deliveredIds) {
-          if (_knownDeliveredIds.add(id)) {
-            SoundService.playChaChing();
-          }
-        }
+      // BUG 2 — Toast DELIVERED unifié : le provider émet un `DeliveredEvent`
+      // et incrémente `deliveredTick` à chaque DELIVERED consolidé (peu importe
+      // la source : `order:status`, `delivery:status` ou polling fallback).
+      // On l'affiche ici une seule fois, dédupliqué par orderId.
+      final tickChanged =
+          prev != null && next.deliveredTick != prev.deliveredTick;
+      final event = next.lastDelivered;
+      if (tickChanged && event != null && _knownDeliveredIds.add(event.orderId)) {
+        SoundService.playChaChing();
+        _showDeliveredToastFromEvent(event);
       }
     });
 
