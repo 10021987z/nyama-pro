@@ -60,8 +60,8 @@ class OrdersRepository {
   /// GET /cook/orders?status=CANCELLED&limit=100
   Future<List<CookOrderModel>> getCookOrderHistory({int limit = 100}) async {
     final results = await Future.wait([
-      _safeFetch(status: 'delivered', limit: limit),
-      _safeFetch(status: 'cancelled', limit: limit),
+      _safeFetch(status: 'DELIVERED', limit: limit),
+      _safeFetch(status: 'CANCELLED', limit: limit),
     ]);
 
     final merged = <String, CookOrderModel>{};
@@ -72,6 +72,8 @@ class OrdersRepository {
     }
     final all = merged.values.toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    // ignore: avoid_print
+    print('[History] Fetched ${all.length} orders (DELIVERED+CANCELLED)');
     return all;
   }
 

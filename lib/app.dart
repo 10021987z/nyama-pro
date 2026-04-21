@@ -94,6 +94,10 @@ class App extends StatelessWidget {
               builder: (context, state) => const HistoryScreen(),
             ),
             GoRoute(
+              path: '/historique',
+              builder: (context, state) => const HistoryScreen(),
+            ),
+            GoRoute(
               path: '/history/:id',
               builder: (context, state) => HistoryDetailScreen(
                 orderId: state.pathParameters['id']!,
