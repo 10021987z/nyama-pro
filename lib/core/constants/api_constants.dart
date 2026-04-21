@@ -36,6 +36,9 @@ class ApiConstants {
   static const String toggleMenuItemAvailability =
       '/cook/menu/items/:id/toggle';
 
+  // ── IA d'assistance rédaction ─────────────────────────────────────────────
+  static const String aiMenuSuggest = '/ai/menu/suggest';
+
   // ── Commandes cuisinière ──────────────────────────────────────────────────
   static const String cookOrders = '/cook/orders';
   static String cookOrderById(String id) => '/cook/orders/$id';

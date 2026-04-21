@@ -11,6 +11,7 @@ import 'features/onboarding/screens/onboarding_screen.dart';
 import 'features/orders/screens/orders_screen.dart';
 import 'features/menu/screens/menu_screen.dart';
 import 'features/menu/screens/menu_form_screen.dart';
+import 'features/menu/screens/menu_add_ai_screen.dart';
 import 'features/menu/data/models/menu_item_model.dart';
 import 'features/revenue/screens/revenue_screen.dart';
 import 'features/history/screens/history_screen.dart';
@@ -70,7 +71,7 @@ class App extends StatelessWidget {
             ),
             GoRoute(
               path: '/menu/add',
-              builder: (context, state) => const MenuFormScreen(),
+              builder: (context, state) => const MenuAddAiScreen(),
             ),
             GoRoute(
               path: '/menu/edit/:id',
