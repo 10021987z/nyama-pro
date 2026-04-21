@@ -31,7 +31,8 @@ class HistoryDetailScreen extends ConsumerWidget {
         appBar: AppBar(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          title: Text('Commande #${orderId.substring(0, 4).toUpperCase()}'),
+          title: Text(
+              'Commande #${orderId.length >= 4 ? orderId.substring(0, 4).toUpperCase() : orderId.toUpperCase()}'),
         ),
         body: const Center(
           child: CircularProgressIndicator(color: AppColors.primary),
@@ -59,13 +60,70 @@ class HistoryDetailScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
+          // ── Status banner ────────────────────────────────────────────
+          _StatusBanner(order: order),
+          const SizedBox(height: 16),
+
           // ── Timeline ─────────────────────────────────────────────────
           _buildTimeline(order),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // ── Client ───────────────────────────────────────────────────
+          _SectionCard(
+            title: 'Client',
+            icon: Icons.person_rounded,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  order.clientName,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+                if (order.clientPhone != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    order.clientPhone!,
+                    style: const TextStyle(
+                        fontSize: 14, color: AppColors.textSecondary),
+                  ),
+                ],
+                if (order.clientNote != null &&
+                    order.clientNote!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('💬 ', style: TextStyle(fontSize: 16)),
+                        Expanded(
+                          child: Text(
+                            order.clientNote!,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontStyle: FontStyle.italic,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
 
           // ── Items ─────────────────────────────────────────────────────
           _SectionCard(
-            title: '🧾 Commande',
+            title: 'Commande',
+            icon: Icons.receipt_long_rounded,
             child: Column(
               children: [
                 ...order.items.map((item) => Padding(
@@ -95,91 +153,88 @@ class HistoryDetailScreen extends ConsumerWidget {
                         ],
                       ),
                     )),
-                const Divider(height: 20),
-                // Sous-total
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Sous-total',
-                        style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textSecondary)),
-                    Text(
-                      (order.totalXaf - order.deliveryFeeXaf).toFcfa(),
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Frais de livraison',
-                        style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textSecondary)),
-                    Text(order.deliveryFeeXaf.toFcfa(),
-                        style: const TextStyle(fontSize: 14)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Divider(height: 1),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'TOTAL',
-                      style: TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w800),
-                    ),
-                    Text(
-                      order.totalXaf.toFcfa(),
-                      style: const TextStyle(
-                        fontFamily: 'SpaceMono',
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.gold,
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
           const SizedBox(height: 12),
 
-          // ── Client note ───────────────────────────────────────────────
-          if (order.clientNote != null && order.clientNote!.isNotEmpty)
+          // ── Breakdown financier ──────────────────────────────────────
+          _FinancialBreakdown(order: order),
+          const SizedBox(height: 12),
+
+          // ── Rider ────────────────────────────────────────────────────
+          if (order.rider != null) ...[
             _SectionCard(
-              title: '💬 Note du client',
-              child: Text(
-                order.clientNote!,
-                style: const TextStyle(
-                    fontSize: 15,
-                    fontStyle: FontStyle.italic,
-                    color: AppColors.textPrimary),
+              title: 'Livreur',
+              icon: Icons.two_wheeler_rounded,
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                    child: Text(
+                      order.rider!.initials,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          order.rider!.name,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w700),
+                        ),
+                        if (order.rider!.vehicleLabel != null)
+                          Text(
+                            order.rider!.vehicleLabel!,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-
-          if (order.clientNote != null && order.clientNote!.isNotEmpty)
             const SizedBox(height: 12),
+          ],
 
           // ── Avis client ───────────────────────────────────────────────
           if (order.review != null) ...[
             _SectionCard(
-              title: '⭐ Avis du client',
+              title: 'Avis du client',
+              icon: Icons.star_rounded,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  RatingBarIndicator(
-                    rating: order.review!.cookRating,
-                    itemBuilder: (_, _) => const Icon(
-                      Icons.star_rounded,
-                      color: AppColors.gold,
-                    ),
-                    itemSize: 28,
-                    itemCount: 5,
+                  Row(
+                    children: [
+                      RatingBarIndicator(
+                        rating: order.review!.cookRating,
+                        itemBuilder: (_, _) => const Icon(
+                          Icons.star_rounded,
+                          color: AppColors.gold,
+                        ),
+                        itemSize: 24,
+                        itemCount: 5,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${order.review!.cookRating.toStringAsFixed(1)}/5',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.gold,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   if (order.review!.comment != null &&
@@ -187,7 +242,7 @@ class HistoryDetailScreen extends ConsumerWidget {
                     Text(
                       '"${order.review!.comment!}"',
                       style: const TextStyle(
-                          fontSize: 15,
+                          fontSize: 14,
                           fontStyle: FontStyle.italic,
                           color: AppColors.textPrimary),
                     )
@@ -195,7 +250,7 @@ class HistoryDetailScreen extends ConsumerWidget {
                     const Text(
                       'Pas de commentaire',
                       style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textSecondary,
                           fontStyle: FontStyle.italic),
                     ),
@@ -206,18 +261,17 @@ class HistoryDetailScreen extends ConsumerWidget {
           ],
 
           // ── Call button ───────────────────────────────────────────────
-          if (order.clientPhone != null) ...[
+          if (order.clientPhone != null)
             SizedBox(
-              height: 56,
+              height: 54,
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () =>
-                    _callClient(order.clientPhone!),
-                icon: const Text('📞', style: TextStyle(fontSize: 20)),
+                onPressed: () => _callClient(order.clientPhone!),
+                icon: const Icon(Icons.phone_rounded),
                 label: const Text(
                   'Appeler le client',
-                  style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w700),
+                  style:
+                      TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.success,
@@ -227,7 +281,6 @@ class HistoryDetailScreen extends ConsumerWidget {
                 ),
               ),
             ),
-          ],
         ],
       ),
     );
@@ -288,23 +341,23 @@ class HistoryDetailScreen extends ConsumerWidget {
       _TimelineStep(
           label: 'Prête',
           done: currentIdx >= 3,
-          time: null),
+          time: fmtTime(order.readyAt)),
       _TimelineStep(
           label: 'Récupérée par le livreur',
           done: currentIdx >= 4,
-          time: null),
+          time: fmtTime(order.pickedUpAt)),
     ];
 
     if (order.isCancelled) {
       steps.add(_TimelineStep(
           label:
-              '❌ Annulée${order.cancelReason != null ? ' — ${order.cancelReason}' : ''}',
+              'Annulée${order.cancelReason != null ? ' — ${order.cancelReason}' : ''}',
           done: true,
           time: fmtTime(order.cancelledAt),
           isCancelled: true));
     } else {
       steps.add(_TimelineStep(
-          label: 'Livrée ✅',
+          label: 'Livrée',
           done: currentIdx >= 5,
           time: fmtTime(order.deliveredAt)));
     }
@@ -318,7 +371,192 @@ class HistoryDetailScreen extends ConsumerWidget {
   }
 }
 
-// ── Timeline models ───────────────────────────────────────────────────────────
+// ─── Status banner ────────────────────────────────────────────────────────────
+
+class _StatusBanner extends StatelessWidget {
+  final CookOrderModel order;
+  const _StatusBanner({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    late final Color color;
+    late final IconData icon;
+    late final String title;
+    late final String subtitle;
+
+    final dateFmt = DateFormat("d MMMM yyyy 'à' HH'h'mm", 'fr');
+    final createdFmt = dateFmt.format(order.createdAt.toLocal());
+
+    if (order.isCancelled) {
+      color = AppColors.error;
+      icon = Icons.cancel_rounded;
+      title = 'Commande annulée';
+      subtitle = order.cancelReason ?? createdFmt;
+    } else if (order.isDelivered) {
+      color = AppColors.success;
+      icon = Icons.check_circle_rounded;
+      title = 'Commande livrée';
+      subtitle = order.deliveredAt != null
+          ? 'Livrée le ${dateFmt.format(order.deliveredAt!.toLocal())}'
+          : createdFmt;
+    } else {
+      color = AppColors.primary;
+      icon = Icons.schedule_rounded;
+      title = 'En cours';
+      subtitle = createdFmt;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Financial breakdown ──────────────────────────────────────────────────────
+
+class _FinancialBreakdown extends StatelessWidget {
+  final CookOrderModel order;
+  const _FinancialBreakdown({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    return _SectionCard(
+      title: 'Détail financier',
+      icon: Icons.payments_rounded,
+      child: Column(
+        children: [
+          _row('Sous-total plats', order.subtotalXaf.toFcfa()),
+          const SizedBox(height: 6),
+          _row('Frais de livraison', order.deliveryFeeXaf.toFcfa()),
+          const SizedBox(height: 8),
+          const Divider(height: 1, color: AppColors.divider),
+          const SizedBox(height: 8),
+          _row(
+            'Total client',
+            order.totalXaf.toFcfa(),
+            valueStyle: const TextStyle(
+              fontFamily: 'SpaceMono',
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.gold,
+            ),
+          ),
+          if (!order.isCancelled) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1, color: AppColors.divider),
+            const SizedBox(height: 10),
+            _row(
+              'Commission NYAMA (${(kNyamaCommissionRate * 100).toStringAsFixed(0)}%)',
+              '− ${order.commissionXaf.toFcfa()}',
+              labelColor: AppColors.textTertiary,
+              valueStyle: const TextStyle(
+                fontFamily: 'SpaceMono',
+                fontSize: 13,
+                color: AppColors.textTertiary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.forestGreen.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Gain restaurant',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.forestGreen,
+                    ),
+                  ),
+                  Text(
+                    order.cookGainXaf.toFcfa(),
+                    style: const TextStyle(
+                      fontFamily: 'SpaceMono',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.forestGreen,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _row(
+    String label,
+    String value, {
+    Color? labelColor,
+    TextStyle? valueStyle,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 14,
+            color: labelColor ?? AppColors.textSecondary,
+          ),
+        ),
+        Text(
+          value,
+          style: valueStyle ??
+              const TextStyle(
+                fontFamily: 'SpaceMono',
+                fontSize: 14,
+                color: AppColors.textPrimary,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Timeline models ──────────────────────────────────────────────────────────
 
 class _TimelineStep {
   final String label;
@@ -334,7 +572,7 @@ class _TimelineStep {
   });
 }
 
-// ── Timeline row ──────────────────────────────────────────────────────────────
+// ─── Timeline row ─────────────────────────────────────────────────────────────
 
 class _TimelineRow extends StatelessWidget {
   final _TimelineStep step;
@@ -372,7 +610,8 @@ class _TimelineRow extends StatelessWidget {
                   Expanded(
                     child: Container(
                       width: 2,
-                      color: step.done ? AppColors.success : AppColors.divider,
+                      color:
+                          step.done ? AppColors.success : AppColors.divider,
                     ),
                   ),
               ],
@@ -418,13 +657,18 @@ class _TimelineRow extends StatelessWidget {
   }
 }
 
-// ── Section card ──────────────────────────────────────────────────────────────
+// ─── Section card ─────────────────────────────────────────────────────────────
 
 class _SectionCard extends StatelessWidget {
   final String title;
+  final IconData? icon;
   final Widget child;
 
-  const _SectionCard({required this.title, required this.child});
+  const _SectionCard({
+    required this.title,
+    required this.child,
+    this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -439,13 +683,21 @@ class _SectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 15,
-              color: AppColors.textPrimary,
-            ),
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 18, color: AppColors.primary),
+                const SizedBox(width: 8),
+              ],
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           child,

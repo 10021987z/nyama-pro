@@ -502,6 +502,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             // ── Menu items ────────────────────────────────────────────
             _MenuCard(children: [
               _MenuTile(
+                icon: Icons.history_rounded,
+                label: 'Historique des commandes',
+                onTap: () => context.push('/history'),
+              ),
+              const Divider(height: 1),
+              _MenuTile(
                 icon: Icons.notifications_none,
                 label: 'Notifications',
                 onTap: _openNotifications,

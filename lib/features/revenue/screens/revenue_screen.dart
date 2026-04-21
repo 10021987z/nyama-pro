@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../orders/providers/orders_provider.dart';
 
@@ -282,6 +283,27 @@ class _RevenueScreenState extends ConsumerState<RevenueScreen> {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: _TopDishCard(dish: d),
               )),
+          const SizedBox(height: 12),
+          // ── Accès historique ──────────────────────────────────────────
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed: () => context.push('/history'),
+              icon: const Icon(Icons.history_rounded),
+              label: const Text(
+                "Voir l'historique complet",
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary, width: 1.5),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
         ],
       ),
     );

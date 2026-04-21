@@ -13,6 +13,7 @@ class OrdersRepository {
   Future<List<CookOrderModel>> getCookOrders({
     String? status,
     String? date,
+    int? limit,
   }) async {
     try {
       final params = <String, dynamic>{};
@@ -23,6 +24,7 @@ class OrdersRepository {
         params['scope'] = 'active';
       }
       if (date != null) params['date'] = date;
+      if (limit != null) params['limit'] = limit;
 
       final response = await _client.get(
         ApiConstants.cookOrders,
@@ -46,6 +48,44 @@ class OrdersRepository {
           .toList();
     } on DioException catch (e) {
       throw ApiExceptionHandler.handle(e);
+    }
+  }
+
+  /// Historique : DELIVERED + CANCELLED fusionnés et triés createdAt DESC.
+  ///
+  /// Le backend n'acceptant qu'un seul `status` à la fois (cf. getCookOrders),
+  /// on effectue deux appels en parallèle puis on fusionne/dé-duplique par id.
+  ///
+  /// GET /cook/orders?status=DELIVERED&limit=100
+  /// GET /cook/orders?status=CANCELLED&limit=100
+  Future<List<CookOrderModel>> getCookOrderHistory({int limit = 100}) async {
+    final results = await Future.wait([
+      _safeFetch(status: 'delivered', limit: limit),
+      _safeFetch(status: 'cancelled', limit: limit),
+    ]);
+
+    final merged = <String, CookOrderModel>{};
+    for (final list in results) {
+      for (final o in list) {
+        if (o.id.isNotEmpty) merged[o.id] = o;
+      }
+    }
+    final all = merged.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  }
+
+  /// Fetch résilient : on n'échoue pas si UN des deux statuts remonte une
+  /// erreur — on renvoie une liste vide pour ce statut afin que l'historique
+  /// reste partiellement utilisable.
+  Future<List<CookOrderModel>> _safeFetch({
+    required String status,
+    required int limit,
+  }) async {
+    try {
+      return await getCookOrders(status: status, limit: limit);
+    } catch (_) {
+      return const <CookOrderModel>[];
     }
   }
 
