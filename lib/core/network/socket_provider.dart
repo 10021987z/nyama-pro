@@ -4,21 +4,19 @@ import '../storage/secure_storage.dart';
 import 'socket_service.dart';
 
 final socketServiceProvider = Provider<SocketService>((ref) {
-  final service = SocketService();
+  final service = SocketService.instance;
 
   ref.listen<AuthState>(authStateProvider, (previous, next) async {
     if (next.isAuthenticated) {
       final token = await SecureStorage.getAccessToken();
-      if (token != null) {
+      if (token != null && token.isNotEmpty && !service.isConnected) {
         final userId = next.user?.id ?? await SecureStorage.getUserId();
-        service.connect(token, userId: userId);
+        await service.connect(token, userId: userId, role: 'COOK');
       }
-    } else {
+    } else if (previous?.isAuthenticated == true) {
       service.disconnect();
     }
   }, fireImmediately: true);
-
-  ref.onDispose(() => service.disconnect());
 
   return service;
 });

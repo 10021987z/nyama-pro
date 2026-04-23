@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/socket_service.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../data/auth_repository.dart';
 
@@ -51,6 +52,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
     checkAuth();
   }
 
+  Future<void> _connectSocket({String? userId}) async {
+    final token = await SecureStorage.getAccessToken();
+    if (token == null || token.isEmpty) {
+      // ignore: avoid_print
+      print('[AuthNotifier][Pro] 🔌 skip socket connect — no token');
+      return;
+    }
+    final resolvedId = userId ?? await SecureStorage.getUserId();
+    await SocketService.instance.connect(
+      token,
+      userId: resolvedId,
+      role: 'COOK',
+    );
+  }
+
   Future<void> checkAuth() async {
     final loggedIn = await _repo.isLoggedIn();
     if (!mounted) return;
@@ -62,6 +78,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           ? CookUser(id: id, phone: phone, cookId: cookId)
           : null;
       state = AuthState(status: AuthStatus.authenticated, user: user);
+      await _connectSocket(userId: user?.id);
     } else {
       state = const AuthState(status: AuthStatus.unauthenticated);
     }
@@ -88,11 +105,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final result = await _repo.verifyOtp(phone, code);
       if (!mounted) return;
+      final user = result.user ?? CookUser(id: '', phone: phone);
       state = AuthState(
         status: AuthStatus.authenticated,
-        user: result.user ?? CookUser(id: '', phone: phone),
+        user: user,
         phone: phone,
       );
+      await _connectSocket(userId: user.id);
     } on NotCookException catch (e) {
       if (!mounted) return;
       // Assure logout complet (pas de tokens stockés)
@@ -118,11 +137,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final result = await _repo.loginWithAccessCode(phone, accessCode);
       if (!mounted) return;
+      final user = result.user ?? CookUser(id: '', phone: phone);
       state = AuthState(
         status: AuthStatus.authenticated,
-        user: result.user ?? CookUser(id: '', phone: phone),
+        user: user,
         phone: phone,
       );
+      await _connectSocket(userId: user.id);
     } on NotCookException catch (e) {
       if (!mounted) return;
       await _repo.logout();
@@ -159,6 +180,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> logout() async {
     await _repo.logout();
+    SocketService.instance.disconnect();
     if (!mounted) return;
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
