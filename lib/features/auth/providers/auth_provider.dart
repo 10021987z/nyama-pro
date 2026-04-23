@@ -53,6 +53,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> _connectSocket({String? userId}) async {
+    // ignore: avoid_print
+    print('[AuthNotifier][Pro] 🔌 ENTER _connectSocket(userId=$userId)');
     final token = await SecureStorage.getAccessToken();
     if (token == null || token.isEmpty) {
       // ignore: avoid_print
@@ -60,11 +62,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return;
     }
     final resolvedId = userId ?? await SecureStorage.getUserId();
+    final preview = token.length >= 20 ? token.substring(0, 20) : token;
+    // ignore: avoid_print
+    print(
+      '[AuthNotifier][Pro] 🔌 calling SocketService.connect token=$preview... userId=$resolvedId',
+    );
     await SocketService.instance.connect(
       token,
       userId: resolvedId,
       role: 'COOK',
     );
+    // ignore: avoid_print
+    print('[AuthNotifier][Pro] 🔌 EXIT _connectSocket()');
   }
 
   Future<void> checkAuth() async {
@@ -101,6 +110,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> verifyOtp(String phone, String code) async {
+    // ignore: avoid_print
+    print('[AuthNotifier][Pro] verifyOtp(phone=$phone)');
     state = AuthState(status: AuthStatus.verifying, phone: phone);
     try {
       final result = await _repo.verifyOtp(phone, code);
@@ -111,6 +122,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         user: user,
         phone: phone,
       );
+      // ignore: avoid_print
+      print('[AuthNotifier][Pro] verifyOtp OK → _connectSocket');
       await _connectSocket(userId: user.id);
     } on NotCookException catch (e) {
       if (!mounted) return;
