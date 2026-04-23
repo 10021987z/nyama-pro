@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'core/constants/app_colors.dart';
 import 'core/network/api_client.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/socket_debug_overlay.dart';
 import 'features/auth/screens/splash_screen.dart';
 import 'features/auth/screens/phone_input_screen.dart';
 import 'features/auth/screens/otp_verification_screen.dart';
@@ -27,6 +28,9 @@ import 'features/profile/screens/cgu_screen.dart';
 import 'features/profile/screens/privacy_screen.dart';
 import 'features/profile/screens/about_screen.dart';
 import 'shared/widgets/pro_bottom_nav_bar.dart';
+
+/// Flag global — passe à `false` pour cacher le bandeau debug socket en prod.
+const bool kShowSocketDebug = true;
 
 class App extends StatelessWidget {
   final String initialLocation;
@@ -178,6 +182,15 @@ class App extends StatelessWidget {
         Locale('fr'),
         Locale('en'),
       ],
+      builder: (context, child) {
+        if (!kShowSocketDebug) return child ?? const SizedBox.shrink();
+        return Stack(
+          children: [
+            child ?? const SizedBox.shrink(),
+            const SocketDebugOverlay(),
+          ],
+        );
+      },
     );
   }
 }
