@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/network/api_client.dart';
 import '../data/models/menu_item_model.dart';
 import '../providers/menu_provider.dart';
 
@@ -120,6 +123,43 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _isSaving = true);
 
+    // Upload photo si une nouvelle a été choisie. Le backend retourne
+    // `{id, url, ...}` — on stocke l'URL dans imageUrl du menu item.
+    String? uploadedImageUrl;
+    if (_pickedPhoto != null) {
+      try {
+        final form = FormData.fromMap({
+          'file': await MultipartFile.fromFile(
+            _pickedPhoto!.path,
+            filename: _pickedPhoto!.path.split('/').last,
+          ),
+        });
+        final res = await ApiClient.instance.post(
+          '/uploads/document',
+          data: form,
+          options: Options(contentType: 'multipart/form-data'),
+        );
+        final body = res.data;
+        if (body is Map<String, dynamic>) {
+          final relativeUrl = body['url']?.toString();
+          if (relativeUrl != null) {
+            uploadedImageUrl = relativeUrl.startsWith('http')
+                ? relativeUrl
+                : '${ApiConstants.serverHost}$relativeUrl';
+          }
+        }
+      } catch (e) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Échec upload photo : $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        setState(() => _isSaving = false);
+        return;
+      }
+    }
+
     final data = <String, dynamic>{
       'name': _nameCtrl.text.trim(),
       if (_descCtrl.text.trim().isNotEmpty)
@@ -130,6 +170,7 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
       if (_stockCtrl.text.trim().isNotEmpty)
         'stockRemaining': int.parse(_stockCtrl.text.trim()),
       'isDailySpecial': _isDailySpecial,
+      if (uploadedImageUrl != null) 'imageUrl': uploadedImageUrl,
     };
 
     try {
