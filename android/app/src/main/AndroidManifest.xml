@@ -2,6 +2,12 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Alerte forte nouvelle commande : vibration 3× + son notification ringtone -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Maintenir l'audio actif quand l'écran est verrouillé (alerte sonore qui dure) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Android 13+ : notif runtime obligatoire -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="NYAMA Pro"
         android:name="${applicationName}"
