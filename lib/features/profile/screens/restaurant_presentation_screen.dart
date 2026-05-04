@@ -55,9 +55,11 @@ class _RestaurantPresentationScreenState
   final List<String> _specialties = [];
   String _prepTime = '25 min';
 
-  // Images
+  // Images : fichier local fraîchement choisi + URL distante déjà persistée.
   File? _coverImage;
   File? _profileImage;
+  String? _coverImageUrl;
+  String? _profileImageUrl;
 
   // Opening hours: 7 days
   late final List<_DaySchedule> _schedule;
@@ -101,6 +103,8 @@ class _RestaurantPresentationScreenState
           _prepTime = '${data['prepTimeAvgMin']} min';
           if (!_prepTimes.contains(_prepTime)) _prepTime = '25 min';
         }
+        _profileImageUrl = _resolveUrl(data['avatarUrl']?.toString());
+        _coverImageUrl = _resolveUrl(data['coverImageUrl']?.toString());
         _parseOpeningHours(data['openingHours']);
       }
     } catch (_) {
@@ -109,6 +113,36 @@ class _RestaurantPresentationScreenState
       if (phone != null) _phoneCtrl.text = phone;
     }
     if (mounted) setState(() => _isLoading = false);
+  }
+
+  String? _resolveUrl(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    if (raw.startsWith('http')) return raw;
+    return '${ApiConstants.serverHost}$raw';
+  }
+
+  Future<String?> _uploadImage(File file) async {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(
+        file.path,
+        filename: file.path.split('/').last,
+      ),
+    });
+    final res = await ApiClient.instance.post(
+      '/uploads/document',
+      data: form,
+      options: Options(contentType: 'multipart/form-data'),
+    );
+    final body = res.data;
+    if (body is Map<String, dynamic>) {
+      final url = body['url']?.toString();
+      if (url != null && url.isNotEmpty) {
+        return url.startsWith('http')
+            ? url
+            : '${ApiConstants.serverHost}$url';
+      }
+    }
+    return null;
   }
 
   void _parseOpeningHours(dynamic raw) {
@@ -187,7 +221,28 @@ class _RestaurantPresentationScreenState
       };
     }
 
-    final body = {
+    String? newAvatar;
+    String? newCover;
+    try {
+      if (_profileImage != null) {
+        newAvatar = await _uploadImage(_profileImage!);
+      }
+      if (_coverImage != null) {
+        newCover = await _uploadImage(_coverImage!);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Échec upload photo : $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      setState(() => _isSaving = false);
+      return;
+    }
+
+    final body = <String, dynamic>{
       'displayName': _nameCtrl.text.trim(),
       'description': _descCtrl.text.trim(),
       'landmark': _addressCtrl.text.trim(),
@@ -195,6 +250,8 @@ class _RestaurantPresentationScreenState
       'specialty': _specialties,
       'prepTimeAvgMin': int.tryParse(_prepTime.replaceAll(' min', '')) ?? 25,
       'openingHours': hours,
+      if (newAvatar != null) 'avatarUrl': newAvatar,
+      if (newCover != null) 'coverImageUrl': newCover,
     };
 
     try {
@@ -203,14 +260,23 @@ class _RestaurantPresentationScreenState
         data: body,
       );
       if (!mounted) return;
+      setState(() {
+        if (newAvatar != null) {
+          _profileImageUrl = newAvatar;
+          _profileImage = null;
+        }
+        if (newCover != null) {
+          _coverImageUrl = newCover;
+          _coverImage = null;
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Restaurant mis a jour'),
+          content: Text('Restaurant mis à jour'),
           backgroundColor: AppColors.forestGreen,
         ),
       );
     } on DioException catch (_) {
-      // Fallback: save locally
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -263,13 +329,25 @@ class _RestaurantPresentationScreenState
                   width: double.infinity,
                   child: _coverImage != null
                       ? Image.file(_coverImage!, fit: BoxFit.cover)
-                      : Container(
-                          color: AppColors.surface,
-                          child: const Center(
-                            child: Icon(Icons.restaurant,
-                                size: 48, color: AppColors.primary),
-                          ),
-                        ),
+                      : (_coverImageUrl != null
+                          ? Image.network(_coverImageUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: AppColors.surface,
+                                child: const Center(
+                                  child: Icon(Icons.restaurant,
+                                      size: 48,
+                                      color: AppColors.primary),
+                                ),
+                              ))
+                          : Container(
+                              color: AppColors.surface,
+                              child: const Center(
+                                child: Icon(Icons.restaurant,
+                                    size: 48,
+                                    color: AppColors.primary),
+                              ),
+                            )),
                 ),
               ),
               // Profile overlay
@@ -284,9 +362,12 @@ class _RestaurantPresentationScreenState
                       radius: 37,
                       backgroundColor: AppColors.surface,
                       backgroundImage: _profileImage != null
-                          ? FileImage(_profileImage!)
-                          : null,
-                      child: _profileImage == null
+                          ? FileImage(_profileImage!) as ImageProvider
+                          : (_profileImageUrl != null
+                              ? NetworkImage(_profileImageUrl!)
+                              : null),
+                      child: (_profileImage == null &&
+                              _profileImageUrl == null)
                           ? const Icon(Icons.person,
                               size: 32, color: AppColors.primary)
                           : null,
@@ -454,9 +535,14 @@ class _RestaurantPresentationScreenState
                               image: FileImage(_coverImage!),
                               fit: BoxFit.cover,
                             )
-                          : null,
+                          : (_coverImageUrl != null
+                              ? DecorationImage(
+                                  image: NetworkImage(_coverImageUrl!),
+                                  fit: BoxFit.cover,
+                                )
+                              : null),
                     ),
-                    child: _coverImage == null
+                    child: (_coverImage == null && _coverImageUrl == null)
                         ? const Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -488,9 +574,12 @@ class _RestaurantPresentationScreenState
                           radius: 40,
                           backgroundColor: AppColors.surface,
                           backgroundImage: _profileImage != null
-                              ? FileImage(_profileImage!)
-                              : null,
-                          child: _profileImage == null
+                              ? FileImage(_profileImage!) as ImageProvider
+                              : (_profileImageUrl != null
+                                  ? NetworkImage(_profileImageUrl!)
+                                  : null),
+                          child: (_profileImage == null &&
+                                  _profileImageUrl == null)
                               ? const Icon(Icons.camera_alt,
                                   size: 24,
                                   color: AppColors.textSecondary)

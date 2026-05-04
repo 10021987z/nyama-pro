@@ -11,14 +11,23 @@ import '../data/models/menu_item_model.dart';
 import '../providers/menu_provider.dart';
 
 // ─── Categories ───────────────────────────────────────────────────────────────
+// Photo réelle pour chaque catégorie (alignées avec l'app Client) — meilleure
+// expérience que les emojis et cohérence visuelle d'un bout à l'autre.
 
-const _kCategories = [
-  ('🥘', 'Plats traditionnels'),
-  ('🔥', 'Grillades'),
-  ('🐟', 'Poissons'),
-  ('🫘', 'Beignets & Snacks'),
-  ('🍚', 'Accompagnements'),
-  ('🥤', 'Boissons'),
+class _Category {
+  final String emoji;
+  final String label;
+  final String image;
+  const _Category(this.emoji, this.label, this.image);
+}
+
+const _kCategories = <_Category>[
+  _Category('🥘', 'Plats traditionnels', 'assets/images/mock/ndole.jpg'),
+  _Category('🔥', 'Grillades', 'assets/images/mock/grillades-jardin-d-olympe.jpg'),
+  _Category('🐟', 'Poissons', 'assets/images/mock/poisson.jpg'),
+  _Category('🫘', 'Beignets & Snacks', 'assets/images/mock/beignet.jpg'),
+  _Category('🍚', 'Accompagnements', 'assets/images/mock/plat_accompagnement.jpg'),
+  _Category('🥤', 'Boissons', 'assets/images/mock/Boissons.jpg'),
 ];
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -398,11 +407,12 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
               runSpacing: 12,
               children: _kCategories
                   .map((c) => _CategoryButton(
-                        emoji: c.$1,
-                        label: c.$2,
-                        selected: _selectedCategory == c.$2,
+                        emoji: c.emoji,
+                        label: c.label,
+                        image: c.image,
+                        selected: _selectedCategory == c.label,
                         onTap: () =>
-                            setState(() => _selectedCategory = c.$2),
+                            setState(() => _selectedCategory = c.label),
                       ))
                   .toList(),
             ),
@@ -546,12 +556,14 @@ class _MenuFormScreenState extends ConsumerState<MenuFormScreen> {
 class _CategoryButton extends StatelessWidget {
   final String emoji;
   final String label;
+  final String image;
   final bool selected;
   final VoidCallback onTap;
 
   const _CategoryButton({
     required this.emoji,
     required this.label,
+    required this.image,
     required this.selected,
     required this.onTap,
   });
@@ -561,29 +573,58 @@ class _CategoryButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 100,
-        height: 80,
+        width: 104,
+        height: 124,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary : AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected ? AppColors.primary : AppColors.divider,
-            width: selected ? 2 : 1,
+            width: selected ? 2.5 : 1,
           ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(emoji,
-                style: const TextStyle(fontSize: 32)),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: selected ? Colors.white : AppColors.textPrimary,
+            Expanded(
+              child: SizedBox(
+                width: double.infinity,
+                child: Image.asset(
+                  image,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: AppColors.surface,
+                    alignment: Alignment.center,
+                    child: Text(emoji,
+                        style: const TextStyle(fontSize: 32)),
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              color: selected ? AppColors.primary : Colors.white,
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.white : AppColors.textPrimary,
+                  height: 1.2,
+                ),
               ),
             ),
           ],

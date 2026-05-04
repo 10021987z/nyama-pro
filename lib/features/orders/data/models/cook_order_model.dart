@@ -181,7 +181,7 @@ class CookOrderModel {
   final String? clientNote;
 
   // Paiement
-  final String? paymentMethod; // 'cash' | 'mobile_money' | 'card' | ...
+  final String? paymentMethod; // 'mobile_money' | 'mtn_momo' | 'orange_money' (CASH retiré)
   final String? paymentStatus; // 'paid' | 'pending' | 'unpaid'
 
   // Rider (quand assigned / picked_up)
@@ -412,27 +412,22 @@ class CookOrderModel {
 
   // ── Paiement helpers ──────────────────────────────────────────────────────
 
-  /// La commande est payée en ligne (mobile money / carte)
+  /// La commande est payée en ligne (Mobile Money via NotchPay)
   bool get isPaid =>
-      paymentStatus == 'paid' ||
-      status == 'confirmed' && paymentMethod != 'cash';
-
-  /// Paiement cash à la livraison
-  bool get isCashOnDelivery =>
-      paymentMethod == 'cash' || (paymentStatus == 'pending' && !isPaid);
+      paymentStatus == 'paid' || status == 'confirmed';
 
   String get paymentMethodLabel {
     switch (paymentMethod) {
-      case 'cash':
-        return 'Cash';
+      case 'mtn_momo':
       case 'mobile_money':
       case 'mobilemoney':
       case 'momo':
-        return 'Mobile Money';
-      case 'card':
-        return 'Carte';
+        return 'MTN MoMo';
+      case 'orange_money':
+      case 'om':
+        return 'Orange Money';
       default:
-        return isPaid ? 'Payé' : 'Cash';
+        return 'Mobile Money';
     }
   }
 

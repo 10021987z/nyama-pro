@@ -50,6 +50,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         if (!mounted) return;
         ref.invalidate(todayStatsProvider);
         ref.invalidate(weeklyStatsProvider);
+        ref.invalidate(cookDashboardProvider);
       },
     );
     // Écoute des événements Socket.IO temps réel
@@ -82,6 +83,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         ref.read(cookOrdersProvider.notifier).addOrder(order);
         // Son + vibration immédiatement — ne dépend plus du diff pending
         SoundService.playNewOrderAlert();
+        // Le compteur "Aujourd'hui" inclut maintenant cette nouvelle commande.
+        ref.invalidate(cookDashboardProvider);
       } catch (e) {
         print('[SOCKET] order:new parse error: $e');
       }
@@ -106,6 +109,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           rawStatus,
           payload: Map<String, dynamic>.from(data),
         );
+        // CA jour s'incrémente à la livraison.
+        ref.invalidate(cookDashboardProvider);
         return;
       }
 
@@ -650,8 +655,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           ],
           totalXaf: 5500,
           deliveryFeeXaf: 0,
-          paymentMethod: 'cash',
-          paymentStatus: 'pending',
+          paymentMethod: 'mobile_money',
+          paymentStatus: 'paid',
           createdAt: DateTime.now().subtract(const Duration(minutes: 12)),
         ),
       ];
@@ -718,8 +723,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
           ],
           totalXaf: 5500,
           deliveryFeeXaf: 500,
-          paymentMethod: 'cash',
-          paymentStatus: 'pending',
+          paymentMethod: 'mobile_money',
+          paymentStatus: 'paid',
           rider: const RiderInfo(name: 'Eric T.', etaMin: 8),
           createdAt: DateTime.now().subtract(const Duration(minutes: 45)),
           acceptedAt: DateTime.now().subtract(const Duration(minutes: 40)),
@@ -2247,7 +2252,7 @@ class _PaymentBadge extends StatelessWidget {
         ? AppColors.success.withValues(alpha: 0.15)
         : AppColors.textTertiary.withValues(alpha: 0.18);
     final fg = paid ? AppColors.success : AppColors.textSecondary;
-    final label = paid ? 'PAYÉ' : 'À PAYER · CASH';
+    final label = paid ? 'PAYÉ' : 'EN ATTENTE';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
